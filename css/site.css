@@ -1,0 +1,79 @@
+.container {
+  margin-top: 10px;
+  margin-bottom: 20px;
+}
+
+.panel-body.small-panel {
+  padding: 3px 8px 3px 8px;
+}
+
+.panel-body.smaller-panel {
+  padding: 0px 6px 0px 6px;
+}
+
+.panel.no-margin {
+  margin-bottom: 0px;
+}
+
+.panel.status-panel {
+  display: inline-block;
+  background-color: #f4f4ff;
+}
+
+.workerlist {
+  display: inline-block;
+}
+
+.starts-hidden {
+  display: none;
+}
+
+hr.sane {
+  margin-top: 2px;
+  margin-bottom: 2px;
+  border-color: #aaa;
+}
+
+input[type="text"] {
+  padding-left: 3px;
+}
+
+.worker-marker {
+  width: 12px;
+  height: 12px;
+  margin-left: 2px;
+  margin-right: 2px;
+  display: inline-block;
+  border: 1px solid;
+  border-radius: 50%;
+}
+
+.CodeMirror {
+  width: 600px;
+  height: 400px;
+  
+  font-size: 8pt;
+  font-family: monospace;
+}
+
+.error-icon {
+  background-color: #f55;
+  font-weight: bold;
+  overflow: hidden;
+  color: yellow;
+  text-align: center;
+  border: 1px solid black;
+  border-radius: 4px;
+  margin: 2px 3px 2px 3px;
+  width: 12px; height: 12px;
+}
+
+.error-marker {
+  background-color: rgba(255, 64, 64, 0.2);
+  /* border: 1px solid rgba(255, 0, 0, 0.4); */
+  border-radius: 0px;
+}
+
+.error-gutter {
+  width: 12px;
+}
