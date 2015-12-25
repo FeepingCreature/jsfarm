@@ -15,7 +15,7 @@ function unique_id() {
 
 function js_tag_init(type, value) {
   if (type == "float") {
-    if (""+parseInt(value, 10) == value) {
+    if (str_is_int(value)) {
       return value+".0";
       // return "fround("+value+")";
     } else if (""+parseFloat(value) == value) {
@@ -37,6 +37,10 @@ function isFloat(arg) {
   return false;
 }
 
+function str_is_int(arg) {
+  return ""+parseInt(arg, 10) == arg;
+}
+
 function coerce_int(arg) {
   if (isFloat(arg)) {
     return ""+(~~(parseFloat(arg, 10)));
@@ -50,7 +54,7 @@ function paren_maybe(ex, op) {
     return !!text.match(/^[a-zA-Z_][0-9a-zA-Z_]*$/);
   };
   var is_number = function(text) {
-    if (""+parseInt(text, 10) == text) return true;
+    if (str_is_int(text)) return true;
     if (""+parseFloat(text) == text) return true;
     if (""+parseFloat(text)+".0" == text) return true; // forced double
     return false;
