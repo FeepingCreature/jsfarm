@@ -15,6 +15,10 @@
   margin-bottom: 0px;
 }
 
+.progress {
+  margin-bottom: 0px;
+}
+
 .panel.status-panel {
   display: inline-block;
   background-color: #f4f4ff;

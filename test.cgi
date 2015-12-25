@@ -39,6 +39,8 @@ cat <<'EOT'
 <script src="mode/scheme/scheme.js"></script>
 <script src="addon/selection/mark-selection.js"></script>
 
+<script src="imgur_canvas.js"></script>
+
 <script src="peer.js"></script>
 <script src="compile.js"></script>
 <script src="main.js"></script>
@@ -93,6 +95,7 @@ cat scene.s2
 cat <<'EOT'
 </textarea>
 <script>
+  setupCanvasUpload($('#canvas'));
   window.editor = CodeMirror.fromTextArea($('#editor')[0], {
     lineNumbers: true,
     mode: "scheme",
