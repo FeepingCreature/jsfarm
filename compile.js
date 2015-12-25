@@ -1526,11 +1526,13 @@ function compile(src) {
       value: values
     };
   });
-  addfun("make-ray", 0, function(js, thing) {
+  addfun("make-ray", function(js, thing, array) {
+    if (array.length > 1) fail(thing, "make-ray expected none or one parameter");
     if (!js) thing.fail("make-ray cannot be called at compiletime");
+    
     var base = js.mkVar("SP", "int", "ray_base");
     
-    js.set("int", "SP", js_op("+", "SP", 32));
+    js.set("int", "SP", js_op("+", "SP", 36));
     
     var get_fp_at = function(offs) {
       var res = js_get_at("float", base, offs);
@@ -1538,13 +1540,24 @@ function compile(src) {
       return res;
     };
     
+    var flagvar = js_get_at("int", base, 32);
+    if (array.length == 1) {
+      var srcray = array[0];
+      if (srcray.kind != "struct" || !srcray.value.hasOwnProperty("flags"))
+        fail(thing, "expected ray as parameter to make-ray");
+      js.set("int", flagvar.value, srcray.value.flags.value);
+    } else {
+      js.set("int", flagvar.value, "3");
+    }
+    
     return {
       kind: "struct",
       base: base,
-      offsets: {pos: 0, dir: 16},
+      offsets: {pos: 0, dir: 16, flags: 32},
       value: {
         pos: mkVec3f_direct(get_fp_at( 0), get_fp_at( 4), get_fp_at( 8)),
-        dir: mkVec3f_direct(get_fp_at(16), get_fp_at(20), get_fp_at(24))
+        dir: mkVec3f_direct(get_fp_at(16), get_fp_at(20), get_fp_at(24)),
+        flags: flagvar
       }
     };
   });

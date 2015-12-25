@@ -3,6 +3,19 @@
     list
     (conc (quasicode (first list)) (qmap (rest list))))))
 
+; flags = outside | inside
+(def outside (lambda (ray newstate)
+  (set (: ray flags) (| (& (: ray flags) 1) (if newstate 2 0)))))
+
+(def outside? (lambda (ray)
+  (= (& (: ray flags) 2) 2)))
+
+(def inside (lambda (ray newstate)
+  (set (: ray flags) (| (& (: ray flags) 2) (if newstate 1 0)))))
+
+(def inside? (lambda (ray)
+  (= (& (: ray flags) 1) 1)))
+
 (def quasicode (lambda (arg)
   (if (not (list? arg)) (quote arg)
     (if (same (first arg) 'unquote)
@@ -13,6 +26,8 @@
   (quasicode arg)))
 
 (def and (macro (a b) `(if ,a (if ,b true false) false)))
+
+(def or (macro (a b) `(if ,a true (if ,b true false))))
 
 (def for (macro (var from to body)
   `(seq
@@ -107,14 +122,13 @@
       (def k (- 0 (/ p 2)))
       (def k1 (- k sq))
       (def k2 (+ k sq))
-      (if (> k2 0)
-        (seq
-          (def distance (if (> k1 0) k1 k2))
-          (set (: res success) true)
-          (set (: res distance) distance)
-          (set (: res normal) (+ pos (* dir distance)))
-          (set (: res emit) (vec3f 0))
-          (set (: res reflect) (vec3f 1)))))))))
+      (if (or (> k1 0) (and (inside? ray) (> k2 0))) (seq
+        (def distance (if (and (> k1 0) (outside? ray)) k1 k2))
+        (set (: res success) true)
+        (set (: res distance) distance)
+        (set (: res normal) (+ pos (* dir distance)))
+        (set (: res emit) (vec3f 0))
+        (set (: res reflect) (vec3f 1)))))))))
 
 (def sphere (lambda (center radius) (seq
   (def rsq (* radius radius))
@@ -273,6 +287,7 @@
 (def coords-ray (lambda (x y) (seq
   (def ratio (/ dw dh))
   (def ray (make-ray))
+  (inside ray false)
   (set (: ray pos) (vec3f
     0
     0
@@ -285,7 +300,7 @@
 
 (def fuzz (lambda (fn)
   (lambda (ray res) (seq
-    (def ray2 (make-ray))
+    (def ray2 (make-ray ray))
     (set (: ray2 pos) (: ray pos))
     (set (: ray2 dir) (normalized (
       +
@@ -306,11 +321,10 @@
             (isfinite (: res distance))
             (> (length-squared (: res reflect)) 0))))
       (seq
-        (def ray2 (make-ray))
+        (def ray2 (make-ray ray))
         (def startpos (+
           (: ray pos)
-          (* (: ray dir) (: res distance))
-          (* 0.0001 (: res normal))))
+          (* (: ray dir) (: res distance))))
         (set (: ray2 pos) startpos)
         (set (: ray2 dir) (cos-weighted-halfsphere (: res normal)))
         (def res2 (make-res))
