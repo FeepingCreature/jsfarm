@@ -18,19 +18,24 @@ function bootstrap_progbar() {
   };
 }
 
+// shared helper
+function logJq(jq) {
+  if (typeof window !== 'undefined') {
+    $('#console').append(jq);
+  }
+}
+
 // opt-in to raw html logging
 function logHtml() {
   var msg = Array.prototype.slice.call(arguments).join(" ");
-  if (typeof window !== 'undefined') {
-    $('#console').append('&gt; '+msg+'<br>');
-  }
+  logJq('&gt; '+msg+'<br>');
 }
 
 function log() {
   var msg = Array.prototype.slice.call(arguments).join(" ");
-  if (typeof window !== 'undefined') {
-    $('#console').append(document.createTextNode('> '+msg)).append('<br>');
-  }
+  var div = $('<div></div>');
+  div.append(document.createTextNode('> '+msg)).append('<br>');
+  logJq(div);
 }
 
 function run() {
@@ -116,7 +121,6 @@ function run() {
     var task = { source: s2src, from: y, to: Math.min(512, y + stepsize) };
     jsfarm.addTask(task).
       onStart(function() {
-        log("onStart");
         ctx.putImageData(wipbrush, 0, y);
       }).
       onDone(function(msg) {

@@ -1448,6 +1448,10 @@ function compile(src) {
             case1 = {kind: "variable", type: "bool", value: case1.value};
           if (case2.kind == "bool")
             case2 = {kind: "variable", type: "bool", value: case2.value};
+          if (case1.kind == "number")
+            case1 = {kind: "variable", type: "float", value: case1.value};
+          if (case2.kind == "number")
+            case2 = {kind: "variable", type: "float", value: case2.value};
           
           if (case1.kind == "variable" && case2.kind == "variable") {
             if (case1.type != case2.type) {

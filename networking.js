@@ -181,10 +181,14 @@ function JSFarm() {
     };
     
     var peer = self.peer;
+    
     if (!peer) {
       goIdle();
       return;
     }
+    
+    // don't list peers if we got no work for them
+    if (!self.gotQueuedTasks()) return;
     
     self.listAllPeersDelayed(function(recheckPeers, setPeerHandler) {
       var ids = [];
@@ -394,7 +398,7 @@ function JSFarm() {
       
       var delay = 10;
       maybeSpawnNewConnections = function() {
-        if (!self.tasks.length) return;
+        if (!self.gotQueuedTasks()) return;
         
         while (true) {
           recheckPeers();
@@ -420,7 +424,7 @@ function JSFarm() {
     });
   };
   this.run = function() {
-    if (!this.tasks.length) return;
+    if (!this.gotQueuedTasks()) return;
     this.asyncCheckPeers();
     setTimeout(this.run.bind(this), 1000);
   };
@@ -448,6 +452,9 @@ function JSFarm() {
       if (task.state == 'queued') return task;
     }
     return null;
+  };
+  this.gotQueuedTasks = function() {
+    return this.getQueuedTask() != null;
   };
   this._startWorker = function() {
     var worker = new Worker('pool.js');
