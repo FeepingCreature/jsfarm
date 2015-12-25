@@ -2,6 +2,27 @@ function setStatus(msg) {
   $('#StatusPanel').html(msg);
 }
 
+function log_id(id) {
+  var msg = Array.prototype.slice.call(arguments).slice(1).join(" ");
+  var div_id = "div_for_"+id;
+  var existing = $(document.getElementById(div_id));
+  var target = null;
+  if (existing.length > 0) {
+    target = existing.last();
+    target.find('div').empty();
+  } else {
+    var div = $('<div></div>');
+    var msgdiv = $('<div></div>');
+    div.append(document.createTextNode("> "+id+": "));
+    div.append(msgdiv);
+    msgdiv.css("border", "1px solid gray").css("display", "inline-block");
+    div.attr("id", div_id);
+    logJq(div);
+    target = div;
+  }
+  target.find('div').append(document.createTextNode(msg));
+}
+
 function decodeAddress(address) {
   var res = {port: 80, path: "jsfarm"};
   var match = address.match(/^([^:\/]*)(:([0-9]*))?(\/(.*))?$/);
@@ -197,7 +218,7 @@ function JSFarm() {
       var maybeSpawnNewConnections = null;
       
       connect = function(id) {
-        log(id, "attempt to connect");
+        log_id(id, "attempt to connect");
         var con = peer.connect(id);
         
         var con_refs = 0;
@@ -229,12 +250,12 @@ function JSFarm() {
         
         var finish = function(reason) {
           return function() {
-            log(id, "finish:", reason, ",", JSON.stringify(Array.prototype.slice.call(arguments)));
+            log_id(id, "finish:", reason, ",", JSON.stringify(Array.prototype.slice.call(arguments)));
             for (var i = 0; i < tasksInFlight.length; ++i) {
               var task = tasksInFlight[i];
               if (!task) continue;
               task.state = 'queued';
-              log(id, "task", task.id, "reset due to connection loss");
+              log_id(id, "task", task.id, "reset due to connection loss");
             }
             delete self.connections[id];
             maybeSpawnNewConnections();
@@ -249,7 +270,7 @@ function JSFarm() {
           
           var startExchange = function() {
             var channel = exchanges.length;
-            log(id, "start new exchange on channel", channel);
+            log_id(id, "start new exchange on channel", channel);
             exchanges[channel] = exchange(channel);
             exchanges[channel].next();
           };
@@ -291,7 +312,7 @@ function JSFarm() {
                   task.state = 'queued';
                   markNotInFlight(task);
                   
-                  log(id, "task", task.id, "rejected:", msg.reason);
+                  log_id(id, "task", task.id, "rejected:", msg.reason);
                   result = false;
                   advance();
                   return true;
@@ -325,7 +346,7 @@ function JSFarm() {
                 
                 if (msg.kind == 'result') {
                   data = new Uint8Array(msg.data);
-                  log(id, "task", task.id, "received data", data.length);
+                  log_id(id, "task", task.id, "received data", data.length);
                   advance();
                   return true;
                 }
@@ -337,14 +358,14 @@ function JSFarm() {
             
             if (!self.peerinfo.hasOwnProperty(id)) self.peerinfo[id] = {};
             if (!self.peerinfo[id].ping) {
-              log(id, "measure ping");
+              log_id(id, "measure ping");
               var tries = 3;
               var sum = 0;
               for (var i = 0; i < tries; ++i) {
                 sum += yield* time();
               }
               var ping = sum / tries;
-              log(id, "ping", "is "+(ping|0)+"ms");
+              log_id(id, "ping", "is "+(ping|0)+"ms");
               self.peerinfo[id].ping = ping;
             }
             
@@ -354,7 +375,7 @@ function JSFarm() {
               return;
             }
             
-            log(id, "task", task.id, "submitting");
+            log_id(id, "task", task.id, "submitting");
             
             if (yield* taskAccepted(task)) {
               task.onStart();
@@ -366,7 +387,7 @@ function JSFarm() {
               return;
             }
             
-            log(id, "task", task.id, "was accepted");
+            log_id(id, "task", task.id, "was accepted");
             
             yield* waitTaskDone();
             
