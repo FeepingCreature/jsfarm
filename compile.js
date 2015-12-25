@@ -79,6 +79,9 @@ function js_tag(type, value) {
       var res = tagf_init(type.value);
       if (res != null) return res;
       throw "what why can't I tag init '"+type.value+"'";
+    } else if (type.kind == "bool") {
+      value = type.value;
+      type = "int";
     } else throw "how tag "+type.kind;
   }
   if (type == "float") return "+"+paren_maybe(value, "+");
@@ -88,6 +91,56 @@ function js_tag(type, value) {
   if (type == "bool") return paren_maybe(value, "|")+"|0";
   throw "how tag "+type;
   // return value;
+}
+
+function js_as_type(type, value) {
+  if (value.kind == "variable" && value.type == type) {
+    return js_tag(value);
+  }
+  if (value.kind == "number") {
+    if (type == "float") return js_tag_init("float", value.value);
+    if (type == "int" && str_is_int(value.value)) {
+      return ""+parseInt(value.value);
+    }
+  }
+  fail(value, "as_type? <"+type+"> "+JSON.stringify(value));
+}
+
+// for unification
+function js_typelist(thing) {
+  if (thing.kind == "variable") {
+    return [thing.type];
+  } else if (thing.kind == "number") {
+    if (str_is_int(thing.value)) {
+      return ["int", "float", "double"];
+    } else {
+      return ["float", "double"];
+    }
+  } else if (thing.kind == "bool") {
+    return ["int"];
+  } else throw "what is typelist of "+thing.kind;
+}
+
+function first_common(array1, array2) {
+  for (var i = 0; i < array1.length; ++i) {
+    var entry = array1[i];
+    for (var k = 0; k < array2.length; ++k) {
+      if (array2[k] == entry) return entry;
+    }
+  }
+  return null;
+}
+
+function js_unify_vars(left, right) {
+  var packtag = function(type, thing) {
+    return {kind: "variable", type: type, value: js_as_type(type, thing)};
+  };
+  var ltypes = js_typelist(left), rtypes = js_typelist(right);
+  var shared = first_common(ltypes, rtypes);
+  if (shared) return {left: packtag(shared, left), right: packtag(shared, right)};
+  
+  fail(left, "unsure how to unify "+JSON.stringify(left)+", "+JSON.stringify(right)+", types "+JSON.stringify(ltypes)+", "+JSON.stringify(rtypes));
+  return {left: left, right: right};
 }
 
 function js_get_at(type, base, offs) {
@@ -139,6 +192,9 @@ function flatten(thing) {
   if (thing.kind == "number") {
     return {signature: "float", array: [thing]}; // primitive
   }
+  if (thing.kind == "bool") {
+    return {signature: "bool", array: [thing]}; // primitive
+  }
   if (thing.kind == "struct") {
     if (!thing.hasOwnProperty("base")) fail(thing, "bad struct for runtime call");
     return {signature: "struct", array: [thing.base]};
@@ -182,13 +238,22 @@ function reconstruct(js, thing, array) {
   var type = null;
   if (thing.kind == "vec3f") type = "vec3f";
   else if (thing.kind == "number") type = "float";
+  else if (thing.kind == "bool") type = "int";
   else if (thing.kind == "variable") type = thing.type;
   else if (thing.kind == "struct") type = "struct";
   else fail(thing, "how to reconstruct "+typeof thing+" "+thing.kind);
   
-  if (type == "float") {
+  if (thing.kind == "bool") {
+    if (array.length < 1) fail(thing, "reconstruct:0 internal error");
+    if (array[0].kind != "variable" || array[0].type != "int") throw ("can't reconstruct bool from "+JSON.stringify(array[0]));
+    return {
+      value: js.mkVar(js_tag(array[0])+" != 0", "bool", "bool"),
+      rest: array.slice(1)};
+  }
+  
+  if (type == "float" || type == "int") {
     if (array.length < 1) fail(thing, "reconstruct:1 internal error");
-    if (array[0].kind != "variable" || array[0].type != "float") throw ("can't reconstruct float from "+JSON.stringify(array[0]));
+    if (array[0].kind != "variable" || array[0].type != type) throw ("can't reconstruct "+type+" from "+JSON.stringify(array[0]));
     return {
       value: array[0],
       rest: array.slice(1)};
@@ -215,6 +280,9 @@ function reconstruct(js, thing, array) {
       }
       else if (type == "float") {
         value[key] = js_get_at("float", base, offset);
+      }
+      else if (type == "int") {
+        value[key] = js_get_at("int", base, offset);
       }
       else if (type == "vec3f") {
         value[key] = {
@@ -885,6 +953,9 @@ function compile(src) {
         }
         else if (arg.kind == "number") {
           partypes.push("float");
+        }
+        else if (arg.kind == "int" || arg.kind == "bool") {
+          partypes.push("int");
         }
         else callthing.fail("1 what is "+typeof arg+" "+arg.kind);
       }
@@ -1566,6 +1637,9 @@ function compile(src) {
       
       var jsop = opname;
       if (opname == "=") jsop = "==";
+      
+      var _ = js_unify_vars(v1, v2);
+      v1 = _.left; v2 = _.right;
       
       return js.mkVar(js_op(jsop, js_tag(v1), js_tag(v2)), "bool", "cmp");
     });
