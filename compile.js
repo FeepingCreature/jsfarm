@@ -429,7 +429,7 @@ function flatten_type(type) {
     if (type.base.hasOwnProperty("base")) return ["int"]; // base pointer
     else return []; // baseless frame (interpreted frinstance)
   }
-  // type of frame is just frame - frames are special snowflakes TODO unspecial
+  // type of frame is just frame - frames are special snowflakes
   if (type.kind == "frame") {
     if (!type.hasOwnProperty("base")) { // see above
       return []; // already got a special signature in flatten(), don't need a special call table
@@ -1310,8 +1310,13 @@ function copy(js, thing) {
     res.fnptr.offset = copy(js, res.fnptr.offset);
     return res;
   }
-  if (thing.kind == "struct" || thing.kind == "frame" ) {
-    return thing; // TODO??
+  if (thing.kind == "struct" && thing.hasOwnProperty("base")) {
+    return js_get_at(thing.type, copy(js, thing.base), 0);
+  }
+  if (thing.kind == "frame" && thing.hasOwnProperty("base")) {
+    var res = flatclone(thing);
+    res.base = copy(js, res.base);
+    return res;
   }
   fail(thing, "how copy "+thing.kind+" "+JSON.stringify(thing));
 }
@@ -2923,12 +2928,12 @@ function setupSysctx() {
     var frame_obj = {
       kind: "frame",
       base: base,
-      offset: 0,
+      offset: {value: 0}, // by-reference, keep when copied
       entries: {}
     };
     js.onSectionFinalize("body", function(text) {
-      // log("frame size fix to "+frame_obj.offset);
-      return text.replace("__FRAME_SIZE__", frame_obj.offset);
+      // log("frame size fix to "+frame_obj.offset.value);
+      return text.replace("__FRAME_SIZE__", frame_obj.offset.value);
     });
     return frame_obj;
   });
@@ -2951,12 +2956,12 @@ function setupSysctx() {
     // offset from frame base = current depth - base depth
     var type = js_type(value);
     var size = js_size(value);
-    var offset = frame.offset;
+    var offset = frame.offset.value;
     
     js_set_at(context, type, frame.base, offset, value);
     
     frame.entries[name] = {type: type, offset: offset};
-    frame.offset += size;
+    frame.offset.value += size;
   });
   defun(sysctx, "%unset-framevar", 2, function(context, thing, frame, name) {
     if (name.kind != "atom") fail(name, "name is supposed to be an atom - internal error");
