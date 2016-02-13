@@ -3405,8 +3405,8 @@ function setupSysctx() {
   
   sysctx.add("true", {kind: "bool", value: 1});
   sysctx.add("false", {kind: "bool", value: 0});
-  sysctx.add("Infinity", {kind: "number", value: 999999999});
   
+  sysctx.add("Infinity", {kind: "variable", type: "float", value: "Infinity"});
   sysctx.add("dw", {kind: "variable", type: "float", value: "(dw|0)"});
   sysctx.add("dh", {kind: "variable", type: "float", value: "(dh|0)"});
   sysctx.add("projscale", {kind: "number", value: 1});
