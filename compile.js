@@ -3276,44 +3276,51 @@ function setupSysctx() {
       
       if (anyVecs) {
         // split operation over vector
+        var rx = null, ry = null, rz = null;
         if (array[0].kind == "vec3f") {
           var vec = array[0].value;
-          res = mkVec3f(js, vec.x, vec.y, vec.z);
+          rx = js_tag("float", vec.x);
+          ry = js_tag("float", vec.y);
+          rz = js_tag("float", vec.z);
         } else {
-          var f = array[0];
-          res = mkVec3f(js, f, f, f);
+          var fv = js_tag("float", copy(js, array[0]).value);
+          rx = fv;
+          ry = fv;
+          rz = fv;
         }
         for (var i = 1; i < array.length; ++i) {
-          var rv = res.value;
           var oper = array[i];
           if (oper.kind == "vec3f") {
-            js.set("float", rv.x, js_op(opname, js_tag("float", rv.x), js_tag("float", oper.value.x)));
-            js.set("float", rv.y, js_op(opname, js_tag("float", rv.y), js_tag("float", oper.value.y)));
-            js.set("float", rv.z, js_op(opname, js_tag("float", rv.z), js_tag("float", oper.value.z)));
+            rx = js_op(opname, rx, js_tag("float", oper.value.x));
+            ry = js_op(opname, ry, js_tag("float", oper.value.y));
+            rz = js_op(opname, rz, js_tag("float", oper.value.z));
           } else if (oper.kind == "variable" && oper.type == "float" ||
                      oper.kind == "number"
           ) {
-            var opn = js_tag_cast("float", oper);
-            js.set("float", rv.x, js_op(opname, js_tag("float", rv.x), opn));
-            js.set("float", rv.y, js_op(opname, js_tag("float", rv.y), opn));
-            js.set("float", rv.z, js_op(opname, js_tag("float", rv.z), opn));
+            var opn = js_tag_cast("float", copy(js, oper));
+            rx = js_op(opname, rx, opn);
+            ry = js_op(opname, ry, opn);
+            rz = js_op(opname, rz, opn);
           } else {
             thing.fail("unimplemented: vop "+JSON.stringify(oper));
           }
         }
+        res = {kind: "vec3f", value: {x: rx, y: ry, z: rz}};
       } else {
-        res = js.mkVar(array[0], null, "op");
-        for (var i = 1; i < array.length; ++i) {
+        var combined_op = null;
+        for (var i = 0; i < array.length; ++i) {
           var oper = array[i];
           
           if (oper.kind == "variable" && (oper.type == "float" || oper.type == "int") ||
               oper.kind == "number"
           ) {
-            js.set(res.type, res.value, js_op(opname, js_tag(res), js_tag(oper)));
+            if (!combined_op) combined_op = js_tag(oper);
+            else combined_op = js_op(opname, combined_op, js_tag(oper));
           } else {
             thing.fail("unimplemented: op "+JSON.stringify(oper));
           }
         }
+        res = {kind: "variable", type: js_type(array[0]), value: combined_op};
       }
       return res;
     });
