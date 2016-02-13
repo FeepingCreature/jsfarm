@@ -53,9 +53,9 @@ onmessage = function(e) {
         b = 0;
       }
       var base = (y - from) * dw + x;
-      array[base*4 + 0] = r * 255;
-      array[base*4 + 1] = g * 255;
-      array[base*4 + 2] = b * 255;
+      array[base*4 + 0] = Math.max(0, Math.min(255, r * 255));
+      array[base*4 + 1] = Math.max(0, Math.min(255, g * 255));
+      array[base*4 + 2] = Math.max(0, Math.min(255, b * 255));
       array[base*4 + 3] = 255;
     };
     

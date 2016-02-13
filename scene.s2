@@ -22,6 +22,9 @@
       (rand_seed (+ x (* y dw)))
       (fn ray res))))))
 ; @file prelude
+(def fov 0.75)
+; (def fov 0.2)
+
 (def qmap (lambda (list)
   (if (= (size list) 0)
     list
@@ -288,7 +291,7 @@
   (alloc-struct
     (bound (make-bound (- center (vec3f radius)) (+ center (vec3f radius))))
     (fn (type scenefun (lambda (ray res) (let
-      (pos (- (: ray pos) center))
+      (pos (- (: ray pos) center)) ; shift ray so we can pretend center is at 0
       (dir (: ray dir))
       (p (sum (* 2 pos dir)))
       (inside (- (+ rsq (* p p (/ 1 4))) (sum (* pos pos))))
@@ -303,7 +306,7 @@
             (seq
               (set (: res success) true)
               (set (: res distance) distance)
-              (set (: res normal) (+ pos (* dir distance)))
+              (set (: res normal) (normalized (+ pos (* dir distance)))) ; center at 0
               (set (: res emit) (vec3f 0))
               (set (: res reflect) (vec3f 1)))))))))))))))
 ; @file bound

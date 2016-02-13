@@ -829,7 +829,6 @@ function match_op(thing, ident) {
 function match_lambda(thing) {
   if (!match_op(thing, "lambda")) return null;
   var args = thing.value.slice(1);
-  if (args.length != 2) alert(JSON.stringify(thing));
   
   if (args.length != 2) fail(thing, "'lambda' expected 2 args");
   if (args[0].kind != "list") fail(args[0], "'lambda' expected list of parameter names "+JSON.stringify(thing));
@@ -1644,6 +1643,11 @@ function lambda_internal(context, thing, rest) {
       }
       else if (res.kind == "number") {
         ret_type = "float";
+        js.addLine("SP = BP;");
+        js.addLine("return "+js_tag(res)+";");
+      }
+      else if (res.kind == "bool") {
+        ret_type = "int";
         js.addLine("SP = BP;");
         js.addLine("return "+js_tag(res)+";");
       }
@@ -2834,6 +2838,7 @@ function setupSysctx() {
         for (var i = 0; i < value.value.length; ++i) {
           list.push(fmt(value.value[i]));
         }
+        if (!list.length) return "'()'";
         return "'('+"+list.join("+' '+")+"+')'";
       }
       if (value.kind == "struct") {
@@ -2841,6 +2846,7 @@ function setupSysctx() {
         for (var key in value.value) if (value.value.hasOwnProperty(key)) {
           list.push("'"+key+": '+"+fmt(value.value[key]));
         }
+        if (!list.length) return "'{}'";
         return "'{'+"+list.join("+', '+")+"+'}'";
       }
       if (value.kind == "closure-poly") {
@@ -2857,6 +2863,7 @@ function setupSysctx() {
     }
     var js = context.js;
     if (!js) {
+      // alert(fmt(value));
       alert(info.value+" = "+eval(fmt(value)));
     } else js.addLine("alert_('"+jsStringEscape(info.value)+" = '+"+fmt(value)+");");
   });
@@ -3165,7 +3172,7 @@ function setupSysctx() {
           return {kind: "bool", value: opfun(v1.value, v2.value)};
         }
         
-        if (!js) thing.fail("invalid arguments to comparison in interpreted mode: "+v1.kind+" and "+v2.kind);
+        if (!js) thing.fail("invalid arguments to comparison in interpreted mode: "+JSON.stringify(v1)+" and "+JSON.stringify(v2));
         
         if (v1.kind == "vec3f" || v2.kind == "vec3f") fail(thing, "cannot compare vectors: "+v1.kind+" with "+v2.kind);
         
@@ -3272,7 +3279,7 @@ function setupSysctx() {
         else return { kind: "vec3f", value: res };
       }
       
-      if (!js) fail(thing, "unimplemented: js '"+opname+"' "+JSON.stringify(array));
+      if (!js) fail(thing, "unimplemented: interpreted '"+opname+"' "+JSON.stringify(array));
       
       if (anyVecs) {
         // split operation over vector
@@ -3410,7 +3417,6 @@ function setupSysctx() {
   sysctx.add("dw", {kind: "variable", type: "float", value: "(dw|0)"});
   sysctx.add("dh", {kind: "variable", type: "float", value: "(dh|0)"});
   sysctx.add("projscale", {kind: "number", value: 1});
-  sysctx.add("fov", {kind: "number", value: 0.75});
   return sysctx;
 }
 
