@@ -72,7 +72,7 @@ function JSFarm() {
         { url: 'stun:stun.l.google.com:19302' }
       ]},*/
       logFunction: function(){var args2=["PeerJS:"]; for(var i=0;i<arguments.length;++i)args2.push(arguments[i]);window.log.apply(window, args2);},
-      debug: 0
+      debug: 0 // verbosity
     };
     settings = $.extend(settings, address);
     
@@ -114,7 +114,13 @@ function JSFarm() {
       }
     };
     
+    var default_obj = {};
+    
     var handleTask = function(msg) {
+      if (msg.kind == 'default') {
+        default_obj = msg.object;
+        return;
+      }
       if (msg.kind == 'task') {
         // any workers idle?
         for (var i = 0; i < self.workers.length; ++i) {
@@ -127,7 +133,16 @@ function JSFarm() {
               delete wrapper.onComplete;
               wrapper.state = 'idle';
             };
-            wrapper.giveWork(msg.message);
+            wrapper.onError = function(error) {
+              con.send({kind: 'error', error: error, channel: msg.channel});
+              delete wrapper.onError;
+              wrapper.state = 'idle';
+            };
+            
+            var message = $.extend({}, default_obj, msg.message);
+            
+            wrapper.giveWork(message);
+            
             con.send({kind: 'accepted', channel: msg.channel});
             return;
           }
@@ -275,6 +290,8 @@ function JSFarm() {
             exchanges[channel].next();
           };
           
+          var dfl_src = null;
+          
           var exchange = function*(channel) {
             var advance = function() {
               exchanges[channel].next();
@@ -291,7 +308,7 @@ function JSFarm() {
                   to = (new Date()).getTime();
                   advance();
                   return true;
-                }
+                } else throw ("1 unexpected kind "+msg.kind);
               });
               yield;
               return to - from;
@@ -316,13 +333,26 @@ function JSFarm() {
                   result = false;
                   advance();
                   return true;
-                }
+                } else throw ("2 unexpected kind "+msg.kind);
               };
               task.state = 'asking';
               tasksInFlight.push(task);
               
               con.onceSuccessful('data', reactTaskAccepted);
-              con.send({kind: 'task', message: task.message, channel: channel});
+              
+              // I'm _pretty_ sure peer.js supports reliable in-order delivery.
+              // that said, to trigger a timing issue here you gotta be doing
+              // something _really_ weird anyways.
+              // so honestly, it's your own fault.
+              if (dfl_src != task.message.source) {
+                con.send({kind: 'default', object: {source: task.message.source}});
+                dfl_src = task.message.source;
+              }
+              
+              var msg = $.extend({}, task.message);
+              delete msg.source; // already set in the default object
+              
+              con.send({kind: 'task', message: msg, channel: channel});
               yield;
               return result;
             };
@@ -333,7 +363,15 @@ function JSFarm() {
                 if (msg.kind == 'done') {
                   advance();
                   return true;
-                }
+                } else if (msg.kind == 'error') {
+                  // late rejection
+                  task.state = 'failed';
+                  markNotInFlight(task);
+                  log(id, ": task", task.id, "failed:", msg.error);
+                  
+                  advance();
+                  return true;
+                } else throw ("3 unexpected kind "+msg.kind);
               };
               con.onceSuccessful('data', reactTaskDone);
               yield;
@@ -349,7 +387,7 @@ function JSFarm() {
                   log_id(id, "task", task.id, "received data", data.length);
                   advance();
                   return true;
-                }
+                } else throw ("4 unexpected kind "+msg.kind);
               };
               con.onceSuccessful('data', reactTaskResultReceived);
               yield;
@@ -503,17 +541,28 @@ function JSFarm() {
     
     workerWrapper.setState('idle');
     
+    var busy = false; // hahahahahha this is so dirty. so. dirty.
+    
     worker.addEventListener('message', function(e) {
       var msg = e.data;
       if (msg.kind == 'finish') {
+        workerWrapper.setState('idle');
         if (workerWrapper.hasOwnProperty('onComplete')) {
-          workerWrapper.setState('idle');
           workerWrapper.onComplete(msg.data);
+        }
+      } else if (msg.kind == 'error') {
+        workerWrapper.setState('idle');
+        if (workerWrapper.hasOwnProperty('onError')) {
+          workerWrapper.onError(msg.error);
         }
       } else if (msg.kind == "progress") {
         // if (update) update((msg.progress * 100 + 0.5)|0);
       } else if (msg.kind == "alert") {
-        alert(msg.message); // TODO only if self-connection
+        if (!busy) { // otherwise just drop it, it's not that important, we get lots
+          busy = true; // THREAD SAFETY L O L
+          alert(msg.message); // TODO only if self-connection
+          busy = false;
+        }
       } else throw ("what is "+msg.kind);
     });
     

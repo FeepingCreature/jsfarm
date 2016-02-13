@@ -39,26 +39,40 @@ function log() {
 }
 
 function run() {
+  $(window).trigger("startRender");
+  
   $('#console').empty();
   
-  var s2src = window.editor.getValue();
+  var fullsrc = window.getFullSrc();
+  var files = window.getFiles();
   
-  var source = compile(s2src);
+  for (var i = 0; i < files.length; ++i) {
+    var file = files[i];
+    file.clear();
+  }
   
-  var lines = source.split("\n");
+  var jsource = compile(files);
+  
+  var lines = jsource.split("\n");
   for (var i = 0; i < lines.length; ++i)
     lines[i] = (i+1)+": "+lines[i];
   var srctext = lines.join("<br>").replace(/\t/g, '&nbsp;&nbsp;&nbsp;&nbsp;');
   logHtml("<a href=\"#\" onclick=\"$(this).parent().find('.src').toggle();\">Source</a>"+
       "<div class=\"src\" style=\"display:none;\">"+srctext+"</div>");
   
-  var ctx = document.getElementById('canvas').getContext('2d');
+  var canvas = document.getElementById('canvas');
+  
+  canvas.width = Math.max(0, Math.min(4000, document.getElementById('width').value));
+  canvas.height = Math.max(0, Math.min(4000, document.getElementById('height').value));
+  $(canvas).css('height', canvas.height * 512 / canvas.width);
+  
+  var ctx = canvas.getContext('2d');
   
   var stepsize = 1;
   
-  var progressbrush = ctx.createImageData(6, 512);
+  var progressbrush = ctx.createImageData(6, canvas.height);
   
-  for (var y = 0; y < 512; ++y) {
+  for (var y = 0; y < canvas.height; ++y) {
     for (var x = 0; x < 6; ++x) {
       var base = y * 6 + x;
       progressbrush.data[base*4 + 0] = 200;
@@ -68,43 +82,27 @@ function run() {
     }
   }
   
-  var wipbrush = ctx.createImageData(512, 1);
+  var wipbrush = ctx.createImageData(canvas.width, 1);
   
-  for (var base = 0; base < 512; ++base) {
+  for (var base = 0; base < canvas.width; ++base) {
     wipbrush.data[base*4 + 0] = 96;
     wipbrush.data[base*4 + 1] = 200;
     wipbrush.data[base*4 + 2] = 255;
     wipbrush.data[base*4 + 3] = 255;
   }
   
-  var brush = ctx.createImageData(512, stepsize);
+  var brush = ctx.createImageData(canvas.width, stepsize);
   
-  function executeInBack(from, to, finalize) {
-    var worker = new Worker("pool.js");
-    // var update = null;
-    worker.addEventListener('message', function(e) {
-      var msg = e.data;
-      if (msg.kind == "finish") {
-      } else if (msg.kind == "alert") {
-        alert(msg.message);
-      } else if (msg.kind == "progress") {
-        // if (update) update((msg.progress * 100 + 0.5)|0);
-      } else throw ("what is "+msg.kind);
-    });
-    // var progbar = bootstrap_progbar();
-    // update = progbar.update;
-    
-    worker.postMessage({from: from, to: to, source: source});
-  }
-  
+  /*
   var start = window.performance.now();
   
   function finish() {
     var end = window.performance.now();
     
     log(Math.floor(end-start)+"ms: "+
-        Math.floor((512*512)/((end-start)/1000))+"pps");
+        Math.floor((canvas.width*canvas.height)/((end-start)/1000))+"pps");
   }
+  */
   
   var id = unique_id();
   logHtml('Running tasks: <div id="'+id+'" style="display: inline-block;"></div>');
@@ -118,7 +116,8 @@ function run() {
     var taskmarker = $('<div style="width: 8px; height: 8px; margin: -1px 0 0 -1px; background-color: #ff7777; border: 1px solid gray; display: inline-block; "></div>');
     tasks.append(taskmarker);
     
-    var task = { source: s2src, from: y, to: Math.min(512, y + stepsize) };
+    var dw = canvas.width, dh = canvas.height;
+    var task = { source: fullsrc, dw: dw, dh: dh, from: y, to: Math.min(dh, y + stepsize) };
     jsfarm.addTask(task).
       onStart(function() {
         ctx.putImageData(wipbrush, 0, y);
@@ -135,35 +134,11 @@ function run() {
   };
   
   ctx.putImageData(progressbrush, 0, 0);
-  ctx.putImageData(progressbrush, 512 - 6, 0);
+  ctx.putImageData(progressbrush, canvas.width - 6, 0);
   
-  for (var y = 0; y < 512; y += stepsize) {
+  for (var y = 0; y < canvas.height; y += stepsize) {
     addTaskFor(y);
   }
   
   jsfarm.run();
-  // jsfarm.giveWorkToIdlePeers();
-  
-  /*
-  for (var y = 0; y < 512; y += stepsize) {
-    var taskmarker = $('<div style="width: 8px; height: 8px; margin: -1px 0 0 -1px; background-color: #ff7777; border: 1px solid gray; display: inline-block; "></div>');
-    tasks.append(taskmarker);
-    pool.
-      addTask({ source: source, from: y, to: Math.min(512, y + stepsize) }).
-      onDone(function(msg) {
-        var from = msg.from, to = msg.to, wdata = msg.data;
-        var bdata = brush.data;
-        for (var i = 0; i < wdata.length; ++i) {
-          bdata[i] = wdata[i];
-        }
-        ctx.putImageData(brush, 0, from);
-        this.css('background-color', '#77ff77');
-      }.bind(taskmarker)).
-      onProgress(function(percent) {
-        var red = $.Color("#ff7777");
-        var green = $.Color("#77ff77");
-        this.css('background-color', red.transition(green, percent).toHexString(false));
-      }.bind(taskmarker));
-  }
-  pool.run();*/
 }

@@ -195,7 +195,7 @@ DataConnection.prototype.send = function(data, chunked) {
     return;
   }
   var self = this;
-  util.log('send', 'normally');
+  util.log('send', JSON.stringify(data));
   if (this.serialization === 'json') {
     this._bufferedSend(JSON.stringify(data));
   } else if (this.serialization === 'binary' || this.serialization === 'binary-utf8') {

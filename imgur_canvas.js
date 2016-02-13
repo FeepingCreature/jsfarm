@@ -1,14 +1,17 @@
 function setReady(div) {
   div.css('cursor', 'pointer');
   div.html("Upload to Imgur");
+  div.css('min-width', 'inherit');
   div.css('padding-right', '3px');
+  div.off('click');
   div.on('click', function() {
-    div.off('click');
     startUploadingToImgur(div);
   });
 }
 
 function startUploadingToImgur(div) {
+  div.css('min-width', '50%');
+  
   var progbar = $('<div class="progress">'+
     '<div class="progress-bar progress-bar-success" role="progressbar" aria-valuenow="0"'+
     'aria-valuemin="0" aria-valuemax="100" style="width:0">'+
@@ -57,6 +60,8 @@ function startUploadingToImgur(div) {
 }
 
 function setUploadUrlTo(div, url) {
+  div.css('min-width', '50%');
+  
   var url_input = $('<input type="text"></input>');
   url_input.css('width', '100%');
   url_input.val(url);
@@ -82,13 +87,18 @@ function setupCanvasUpload(canvas) {
     css('right', '0px').
     css('margin', '4px').
     css('padding', '2px').
-    css('min-width', '50%').
     css('text-align', 'right').
-    css('background-color', 'rgba(0,0,0,128)').
+    css('background-color', 'rgba(0,0,0,0.5)').
+    css('color', '#fff').
     css('border', '1px solid').
     css('border-radius', '3px').
     css('display', 'none');
+  
   setReady(imgur_link);
+  
+  $(window).on("startRender", function() {
+    setReady(imgur_link);
+  });
   
   wrapper.append(imgur_link);
   
