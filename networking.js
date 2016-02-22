@@ -56,8 +56,6 @@ function JSFarm() {
   
   this.peerinfo = [];
   
-  this.async_check_state = "idle";
-  
   this.connection_limit = 10;
   this.connections = {};
   
@@ -154,19 +152,6 @@ function JSFarm() {
     con.on('data', handlePing);
     con.on('data', handleTask);
   };
-  this.asyncCheckPeers = function() {
-    var self = this;
-    
-    if (self.async_check_state != "idle") {
-      // already got a pass running
-      return;
-    }
-    
-    self.async_check_state = "busy";
-    setStatus("busy", "peer check");
-    
-    self.giveWorkToIdlePeers();
-  };
   this.listAllPeersDelayed = function(fn) {
     var self = this;
     
@@ -191,19 +176,12 @@ function JSFarm() {
     };
     
     
-    var lastChecked = null;
     var recheckPeers = function() {
-      var t = (new Date()).getTime();
-      if (lastChecked == null || (t - lastChecked) > 10000) {
-        lastChecked = Infinity; // never recheck while we're running
-        log("it is time to relist peers");
-        self.peer.listAllPeers(function(peers) {
-          peerlist = peers;
-          // restart the clock
-          lastChecked = (new Date()).getTime();
-          callBackWithNewPeers();
-        });
-      }
+      log("relisting peers");
+      self.peer.listAllPeers(function(peers) {
+        peerlist = peers;
+        callBackWithNewPeers();
+      });
     };
     
     fn(recheckPeers, setPeerHandler);
@@ -211,25 +189,19 @@ function JSFarm() {
   this.giveWorkToIdlePeers = function() {
     var self = this;
     
-    var goIdle = function() {
-      setStatus("idle", "peer check");
-      self.async_check_state = "idle";
-    };
-    
     var peer = self.peer;
     
     if (!peer) {
-      goIdle();
+      log("No peer connection established!");
       return;
     }
+    
+    var goIdle = function() { setStatus("idle", "peer check"); };
     
     // don't list peers if we got no work for them
     if (!self.gotQueuedTasks()) return;
     
     self.listAllPeersDelayed(function(recheckPeers, setPeerHandler) {
-      var ids = [];
-      setPeerHandler(function(id) { ids.push(id); });
-      
       var maybeSpawnNewConnections = null;
       
       connect = function(id) {
@@ -272,11 +244,9 @@ function JSFarm() {
               task.state = 'queued';
               log_id(id, "task", task.id, "reset due to connection loss");
             }
+            log("remove connection "+id+" because "+reason);
             delete self.connections[id];
             maybeSpawnNewConnections();
-            if (!self.connections.length) {
-              goIdle();
-            }
           };
         };
         
@@ -455,38 +425,51 @@ function JSFarm() {
         self.connections[id] = con;
       };
       
-      var delay = 10;
+      var ids = [];
+      setPeerHandler(function(id) { ids.push(id); maybeSpawnNewConnections(); });
+      
+      var must_recheck_flag = true;
+      
       maybeSpawnNewConnections = function() {
         if (!self.gotQueuedTasks()) return;
         
-        while (true) {
-          recheckPeers();
-          if (!ids.length || Object.keys(self.connections).length >= self.connection_limit) {
-            break;
-          }
-          connect(ids.pop());
-        }
+        var active_connections_count = Object.keys(self.connections).length;
+        if (active_connections_count >= self.connection_limit) return;
+        
         if (!ids.length) {
-          if (Object.keys(self.connections).length > 0) {
-            log("No new peers found, but we're busy enough. Retrying in 10s");
-            setTimeout(maybeSpawnNewConnections, 10000);
-          } else {
-            log("No peers found yet. Retrying in "+Math.floor(delay)+"ms");
-            setTimeout(maybeSpawnNewConnections, delay);
-            delay = Math.min(10000, delay * 1.5);
-          }
-        } else {
-          log("connection limit reached for now");
+          must_recheck_flag = true;
+          return;
         }
+        
+        var new_id = ids.pop();
+        log("open new connection to", new_id);
+        connect(new_id);
       };
-      maybeSpawnNewConnections();
+      
+      // check regularly (maybeSpawn will naturally bail if we're at the limit)
+      var openNewConnectionsPeriodically = function() {
+        if (!self.gotQueuedTasks()) return; // TODO self.done()
+        
+        setTimeout(openNewConnectionsPeriodically, 1000);
+        maybeSpawnNewConnections();
+      };
+      openNewConnectionsPeriodically();
+      
+      var recheckPeersPeriodically = function() {
+        if (!self.gotQueuedTasks()) return; // TODO self.done()
+        
+        // check every 10s
+        setTimeout(recheckPeersPeriodically, 10000);
+        
+        if (!must_recheck_flag) return;
+        must_recheck_flag = false; // yes yes, I'm on it
+        
+        recheckPeers();
+      };
+      recheckPeersPeriodically();
     });
   };
-  this.run = function() {
-    if (!this.gotQueuedTasks()) return;
-    this.asyncCheckPeers();
-    setTimeout(this.run.bind(this), 1000);
-  };
+  this.run = function() { this.giveWorkToIdlePeers(); };
   this.taskcount = 0;
   this.addTask = function(msg) {
     var task = {
