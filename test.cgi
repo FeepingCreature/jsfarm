@@ -45,6 +45,7 @@ cat <<'EOT'
 <script src="compile.js"></script>
 <script src="files.js"></script>
 <script src="main.js"></script>
+<script src="time.js"></script>
 <script src="networking.js"></script>
 
 </head>

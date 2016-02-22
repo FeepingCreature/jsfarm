@@ -31,9 +31,13 @@ function logHtml() {
   logJq('&gt; '+msg+'<br>');
 }
 
+var LogStart = time();
+
 function log() {
   var msg = Array.prototype.slice.call(arguments).join(" ");
   var div = $('<div></div>');
+  var t = time();
+  div.append(((t - LogStart)/1000.0)+": ");
   div.append(document.createTextNode('> '+msg)).append('<br>');
   logJq(div);
 }
