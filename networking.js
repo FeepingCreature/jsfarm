@@ -72,37 +72,36 @@ function RobinQueue(limit) {
   }
   this.popTask = function() {
     if (!this.tasks.length) return null;
-    return this.tasks.pop();
+    return this.tasks.shift(); // fifo
   };
   this.addTaskMaybe = function(task) {
-    if (this.tasks.length < this.limit) {
-      // pay for work done with lower score henceforth (this makes round-robin)
-      this.penalizeTaskOrigin(task);
-      this.tasks.push(task);
-      return true;
-    }
-    // maybe we replace a queued task?
-    // find the queued task with the worst score
-    var worstscore = null, worstscore_id = null;
-    for (var i = 0; i < this.tasks.length; ++i) {
-      var oldtaskscore = this.getScoreForTask(this.tasks[i]);
-      if (!worstscore || oldtaskscore < worstscore) {
-        worstscore = oldtaskscore;
-        worstscore_id = i;
+    if (this.tasks.length == this.limit) {
+      // maybe we replace a queued task?
+      // find the queued task with the worst score
+      var worstscore = null, worstscore_id = null;
+      for (var i = 0; i < this.tasks.length; ++i) {
+        var oldtaskscore = this.getScoreForTask(this.tasks[i]);
+        if (!worstscore || oldtaskscore < worstscore) {
+          worstscore = oldtaskscore;
+          worstscore_id = i;
+        }
       }
-    }
-    var ntaskscore = this.getScoreForTask(task);
-    if (worstscore && worstscore < ntaskscore) {
-      // yep, we replace worstscore_id
+      
+      var ntaskscore = this.getScoreForTask(task);
+      if (!worstscore || worstscore >= ntaskscore) { // no tasks with worse score
+        return false;
+      }
+      
+      // we replace worstscore_id
       var task = this.tasks[worstscore_id];
       log("kick", JSON.stringify(task.msg));
       task.evict();
       
-      this.penalizeTaskOrigin(task);
-      this.tasks[worstscore_id] = task;
-      return true;
+      this.tasks = this.tasks.splice(worstscore_id, 1);
     }
-    return false;
+    this.penalizeTaskOrigin(task);
+    this.tasks.push(task);
+    return true;
   };
 }
 
@@ -351,7 +350,7 @@ function JSFarm() {
               var self = exchanges[channel].timer;
               if (self.hasOwnProperty('task')) {
                 // back to queue!
-                log("timeout, reenqueue", self.task.id);
+                log("timeout on", id, "reenqueue", self.task.id);
                 self.task.state = 'queued';
                 markNotInFlight(self.task);
               }
