@@ -252,11 +252,17 @@ function JSFarm() {
         
         con.on('open', function() {
           var exchanges = [];
+          var channel_counter = 0;
           
           var startExchange = function() {
-            var channel = exchanges.length;
+            var channel = channel_counter ++;
             log_id(id, "start new exchange on channel", channel);
             exchanges[channel] = exchange(channel);
+            exchanges[channel].timer = new TimeoutTimer(50000, function() {
+              log_id(id, "timed out!");
+              exchanges[channel] = null;
+            });
+            
             exchanges[channel].next();
           };
           
@@ -264,18 +270,28 @@ function JSFarm() {
           
           var exchange = function*(channel) {
             var advance = function() {
+              if (exchanges[channel] == null) return; // died
+              exchanges[channel].timer.reset(); // something happened! reset the timeout
               exchanges[channel].next();
             };
+            
             con_claim();
+            function cleanup(quietly) {
+              con_release();
+              if (!quietly) log_id(id, "task cleanup: kill timer on channel", channel);
+              exchanges[channel].timer.kill();
+              exchanges[channel] = null;
+            }
+            
             var time = function*() {
-              var from = (new Date()).getTime();
+              var from = time();
               var to = null;
               con.send({kind: "ping", channel: channel});
               con.onceSuccessful('data', function(msg) {
                 if (msg.channel != channel) return;
                 
                 if (msg.kind == 'pong') {
-                  to = (new Date()).getTime();
+                  to = time();
                   advance();
                   return true;
                 } else throw ("1 unexpected kind "+msg.kind);
@@ -379,7 +395,7 @@ function JSFarm() {
             
             var task = self.getQueuedTask();
             if (!task) {
-              con_release();
+              cleanup(true);
               return;
             }
             
@@ -391,7 +407,7 @@ function JSFarm() {
               // start a new exchange
               startExchange();
             } else {
-              con_release();
+              cleanup(true);
               return;
             }
             
@@ -413,7 +429,7 @@ function JSFarm() {
             
             finishTask(task, resultInfo);
             
-            con_release();
+            cleanup(false);
             return;
           };
           
@@ -498,21 +514,35 @@ function JSFarm() {
   this.gotQueuedTasks = function() {
     return this.getQueuedTask() != null;
   };
-  this._startWorker = function() {
+  this._startWorker = function(marker, index) {
+    var self = this;
     var worker = new Worker('pool.js');
-
-    var marker = $('<div class="worker-marker"></div>');
-    $('#WorkerInfo .workerlist').append(marker);
     
     var workerWrapper = {
       state: '',
       worker: worker,
+      worker_timeout_timer: null,
+      onTimeout: function() {
+        // cleanup
+        this.worker.terminate();
+        if (this.hasOwnProperty('onError')) {
+          this.onError("Timeout: computation exceeded 30s");
+        }
+        // and restart
+        self._startWorker(marker, index);
+      },
       setState: function(state) {
         if (state == 'busy') {
+          if (this.state != 'idle') throw ("invalid state transition from '"+this.state+"' to 'busy'");
           this.state = 'busy';
           marker.css('background-color', 'yellow');
+          this.worker_timeout_timer = new TimeoutTimer(30000, this.onTimeout.bind(this));
         } else if (state == 'idle') {
+          if (this.state != 'busy' && this.state != '') {
+            throw ("invalid state transition from '"+this.state+"' to 'idle'");
+          }
           this.state = 'idle';
+          if (this.worker_timeout_timer) this.worker_timeout_timer.kill();
           marker.css('background-color', 'lightgreen');
         } else throw ('unknown worker state '+state);
       },
@@ -549,11 +579,13 @@ function JSFarm() {
       } else throw ("what is "+msg.kind);
     });
     
-    this.workers.push(workerWrapper);
+    this.workers[index] = workerWrapper;
   }
   this.startWorkers = function(threads) {
     for (var i = 0; i < threads; ++i) {
-      this._startWorker();
+      var marker = $('<div class="worker-marker"></div>');
+      $('#WorkerInfo .workerlist').append(marker);
+      this._startWorker(marker, this.workers.length);
     }
   };
   this.stop = function() {
