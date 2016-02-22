@@ -42,7 +42,7 @@ function log() {
   logJq(div);
 }
 
-function run() {
+function renderScene() {
   $(window).trigger("startRender");
   
   $('#console').empty();

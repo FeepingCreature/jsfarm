@@ -340,7 +340,7 @@ cat <<'EOT'
   };
 </script>
 <hr>
-<button type="button" id="RunButton" onclick="run()">Run</button>
+<button type="button" id="RunButton" onclick="renderScene()">Run</button>
 <script>
   $(function() {
     $("#RunButton").click();
