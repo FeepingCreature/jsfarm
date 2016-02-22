@@ -46,6 +46,67 @@ function CheckTarget() {
 
 $(CheckTarget); // check on startup
 
+/** @constructor */
+function RobinTask(con, evictfn) {
+  this.con = con;
+  this.origin = con.id;
+  this.evict = evictfn;
+}
+
+/** @constructor */
+function RobinQueue(limit) {
+  this.scores = {};
+  this.limit = limit;
+  this.tasks = [];
+  this.getScoreForTask = function(task) {
+    if (this.scores.hasOwnProperty(task.origin)) {
+      return this.scores[task.origin];
+    }
+    return 0;
+  };
+  this.penalizeTaskOrigin = function(task) {
+    if (!this.scores.hasOwnProperty(task.origin)) {
+      this.scores[task.origin] = 0;
+    }
+    this.scores[task.origin] --; // penalize
+  }
+  this.popTask = function() {
+    if (!this.tasks.length) return null;
+    return this.tasks.pop();
+  };
+  this.addTaskMaybe = function(task) {
+    if (this.tasks.length < this.limit) {
+      // pay for work done with lower score henceforth (this makes round-robin)
+      this.penalizeTaskOrigin(task);
+      this.tasks.push(task);
+      return true;
+    }
+    // maybe we replace a queued task?
+    // find the queued task with the worst score
+    var worstscore = null, worstscore_id = null;
+    for (var i = 0; i < this.tasks.length; ++i) {
+      var oldtaskscore = this.getScoreForTask(this.tasks[i]);
+      if (!worstscore || oldtaskscore < worstscore) {
+        worstscore = oldtaskscore;
+        worstscore_id = i;
+      }
+    }
+    var ntaskscore = this.getScoreForTask(task);
+    if (worstscore && worstscore < ntaskscore) {
+      // yep, we replace worstscore_id
+      var task = this.tasks[worstscore_id];
+      log("kick", JSON.stringify(task.msg));
+      task.evict();
+      
+      this.penalizeTaskOrigin(task);
+      this.tasks[worstscore_id] = task;
+      return true;
+    }
+    return false;
+  };
+}
+
+/** @constructor */
 function JSFarm() {
   this.workers = [];
   
@@ -54,7 +115,7 @@ function JSFarm() {
   this.peerlist = [];
   this.peerlist_last_updated = null;
   
-  this.peerinfo = [];
+  this.peerinfo = {};
   
   this.connection_limit = 10;
   this.connections = {};
@@ -95,11 +156,48 @@ function JSFarm() {
       var threads = Math.min(16, parseInt($('#settings input#threads').val(), 10));
       
       self.startWorkers(threads);
+      self.taskqueue.limit = threads;
     });
     $('#WorkerInfo').show().css('display', 'inline-block');
     
     $('#StartButton').hide();
     $('#StopButton').show();
+  };
+  this.taskqueue = new RobinQueue(0);
+  this.checkQueue = function() {
+    var self = this;
+    
+    function giveTaskToThread(wrapper, task) {
+      var msg = task.msg;
+      var con = task.con;
+      
+      wrapper.onComplete = function(data) {
+        con.send({kind: 'done', channel: msg.channel});
+        con.send({kind: 'result', channel: msg.channel, data: data.buffer});
+        delete wrapper.onComplete;
+        
+        // worker has gone idle, maybe we can assign a queued task?
+        self.checkQueue(con);
+      };
+      
+      wrapper.onError = function(error) {
+        con.send({kind: 'error', error: error, channel: msg.channel});
+        delete wrapper.onError;
+      };
+      
+      var message = $.extend({}, task.default_obj, msg.message);
+      
+      wrapper.giveWork(message);
+    }
+    
+    for (var i = 0; i < self.workers.length; ++i) {
+      var wrapper = self.workers[i];
+      if (wrapper.state == 'idle') {
+        var task = self.taskqueue.popTask();
+        if (!task) return; // can stop checking workers - nothing to do
+        giveTaskToThread(wrapper, task);
+      }
+    }
   };
   this.handleIncomingConnection = function(con) {
     var self = this;
@@ -120,32 +218,21 @@ function JSFarm() {
         return;
       }
       if (msg.kind == 'task') {
-        // any workers idle?
-        for (var i = 0; i < self.workers.length; ++i) {
-          var wrapper = self.workers[i];
-          if (wrapper.state == 'idle') {
-            // TODO error recovery
-            wrapper.onComplete = function(data) {
-              con.send({kind: 'done', channel: msg.channel});
-              con.send({kind: 'result', channel: msg.channel, data: data.buffer});
-              delete wrapper.onComplete;
-              wrapper.state = 'idle';
-            };
-            wrapper.onError = function(error) {
-              con.send({kind: 'error', error: error, channel: msg.channel});
-              delete wrapper.onError;
-              wrapper.state = 'idle';
-            };
-            
-            var message = $.extend({}, default_obj, msg.message);
-            
-            wrapper.giveWork(message);
-            
-            con.send({kind: 'accepted', channel: msg.channel});
-            return;
-          }
+        var task = new RobinTask(con, function() {
+          con.send({kind: 'error', reason: 'task evicted from queue', channel: msg.channel});
+        });
+        task.msg = msg;
+        task.default_obj = default_obj;
+        
+        if (self.taskqueue.addTaskMaybe(task)) {
+          // log("accept task "+JSON.stringify(msg));
+          con.send({kind: 'accepted', channel: msg.channel});
+          // queue has gained a task, maybe we can assign it to a worker?
+          self.checkQueue(con, default_obj);
+        } else {
+          // log("reject task "+JSON.stringify(msg));
+          con.send({kind: 'rejected', reason: 'taskqueue full', channel: msg.channel});
         }
-        con.send({kind: 'rejected', reason: 'all workers busy', channel: msg.channel});
       }
     };
     
