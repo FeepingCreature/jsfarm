@@ -175,7 +175,6 @@ function JSFarm() {
       }
     };
     
-    
     var recheckPeers = function() {
       log("relisting peers");
       self.peer.listAllPeers(function(peers) {
@@ -212,6 +211,7 @@ function JSFarm() {
         var con_claim = function() { con_refs ++; };
         var con_release = function() {
           if (--con_refs == 0) {
+            log("nothing relevant happening on connection - close.");
             con.close();
           }
         };
@@ -229,6 +229,7 @@ function JSFarm() {
             tasksInFlight.shift();
           }
         };
+        
         var finishTask = function(task, resultInfo) {
           task.state = 'done';
           task.onDone(resultInfo);
@@ -259,7 +260,15 @@ function JSFarm() {
             log_id(id, "start new exchange on channel", channel);
             exchanges[channel] = exchange(channel);
             exchanges[channel].timer = new TimeoutTimer(50000, function() {
-              log_id(id, "timed out!");
+              log_id(id, "task timed out");
+              var self = exchanges[channel].timer;
+              if (self.hasOwnProperty('task')) {
+                // back to queue!
+                log("timeout, reenqueue", self.task.id);
+                self.task.state = 'queued';
+                markNotInFlight(self.task);
+              }
+              con_release();
               exchanges[channel] = null;
             });
             
@@ -381,8 +390,9 @@ function JSFarm() {
             };
             
             if (!self.peerinfo.hasOwnProperty(id)) self.peerinfo[id] = {};
-            if (!self.peerinfo[id].ping) {
+            if (!self.peerinfo[id].hasOwnProperty('ping')) {
               log_id(id, "measure ping");
+              self.peerinfo[id].ping = null;
               var tries = 3;
               var sum = 0;
               for (var i = 0; i < tries; ++i) {
@@ -399,6 +409,9 @@ function JSFarm() {
               return;
             }
             
+            exchanges[channel].timer.task = task;
+            
+            // log("submit task", id, ":", task.id, ":", task.message.from);
             log_id(id, "task", task.id, "submitting");
             
             if (yield* taskAccepted(task)) {
@@ -420,6 +433,8 @@ function JSFarm() {
             startExchange();
             
             var data = yield* waitTaskResultReceived();
+            
+            // log("received task", id, ":", task.id, ":", task.message.from);
             
             var resultInfo = {
               from: task.message.from,
@@ -464,7 +479,7 @@ function JSFarm() {
       
       // check regularly (maybeSpawn will naturally bail if we're at the limit)
       var openNewConnectionsPeriodically = function() {
-        if (!self.gotQueuedTasks()) return; // TODO self.done()
+        if (!self.gotUnfinishedTasks()) return; // TODO self.done()
         
         setTimeout(openNewConnectionsPeriodically, 1000);
         maybeSpawnNewConnections();
@@ -472,7 +487,7 @@ function JSFarm() {
       openNewConnectionsPeriodically();
       
       var recheckPeersPeriodically = function() {
-        if (!self.gotQueuedTasks()) return; // TODO self.done()
+        if (!self.gotUnfinishedTasks()) return; // TODO self.done()
         
         // check every 10s
         setTimeout(recheckPeersPeriodically, 10000);
@@ -489,7 +504,7 @@ function JSFarm() {
   this.taskcount = 0;
   this.addTask = function(msg) {
     var task = {
-      state: "queued",
+      state: 'queued',
       id: this.taskcount++,
       message: msg,
       onStart: function() { },
@@ -501,7 +516,7 @@ function JSFarm() {
       onStart: function(fn) { task.onStart = fn; return this; }
     };
   };
-  this.getQueuedTask = function() {
+  this.peekQueuedTask = function() {
     while (this.tasks.length && this.tasks[0].state == 'done') {
       this.tasks.shift();
     }
@@ -511,8 +526,21 @@ function JSFarm() {
     }
     return null;
   };
+  this.getQueuedTask = function() {
+    var task = this.peekQueuedTask();
+    if (task) {
+      task.state = 'processing';
+    }
+    return task;
+  };
   this.gotQueuedTasks = function() {
-    return this.getQueuedTask() != null;
+    return this.peekQueuedTask() != null;
+  };
+  this.gotUnfinishedTasks = function() {
+    for (var i = 0; i < this.tasks.length; ++i) {
+      if (this.tasks[i].state != 'done') return true;
+    }
+    return false;
   };
   this._startWorker = function(marker, index) {
     var self = this;
