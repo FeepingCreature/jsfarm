@@ -3618,10 +3618,12 @@ function compile(files) {
   var main_fn = main.obj;
   
   jsfile.openSection("function");
-  jsfile.addLine("function executeRange(from, to) {");
+  jsfile.addLine("function executeRange(x_from, y_from, x_to, y_to) {");
   jsfile.indent();
-  jsfile.addLine("from = from|0;");
-  jsfile.addLine("to = to|0;");
+  jsfile.addLine("x_from = x_from|0;");
+  jsfile.addLine("y_from = y_from|0;");
+  jsfile.addLine("x_to = x_to|0;");
+  jsfile.addLine("y_to = y_to|0;");
   
   jsfile.addLine("var x = 0;");
   jsfile.addLine("var y = 0;");
@@ -3636,11 +3638,11 @@ function compile(files) {
   
   jsfile.addLine("HP_snapshot = HP|0;");
   
-  jsfile.addLine("y = from|0;");
-  jsfile.addLine("while ((y|0) < (to|0)) {");
+  jsfile.addLine("y = y_from|0;");
+  jsfile.addLine("while ((y|0) < (y_to|0)) {");
   jsfile.indent();
-  jsfile.addLine("x = 0;");
-  jsfile.addLine("while ((x|0) < (dw|0)) {");
+  jsfile.addLine("x = x_from|0;");
+  jsfile.addLine("while ((x|0) < (x_to|0)) {");
   jsfile.indent();
   jsfile.addLine("HP = HP_snapshot|0;"); // reset again
   

@@ -502,7 +502,7 @@ function JSFarm() {
             
             exchanges[channel].timer.task = task;
             
-            // log("submit task", id, ":", task.id, ":", task.message.from);
+            // log("submit task", id, ":", task.id, ":", task.message.y_from);
             log_id(id, "task", task.id, "submitting");
             
             if (yield* taskAccepted(task)) {
@@ -525,11 +525,13 @@ function JSFarm() {
             
             var data = yield* waitTaskResultReceived();
             
-            // log("received task", id, ":", task.id, ":", task.message.from);
+            // log("received task", id, ":", task.id, ":", task.message.y_from);
             
             var resultInfo = {
-              from: task.message.from,
-              to: task.message.to,
+              x_from: task.message.x_from,
+              y_from: task.message.y_from,
+              x_to: task.message.x_to,
+              y_to: task.message.y_to,
               data: data
             };
             
@@ -590,6 +592,15 @@ function JSFarm() {
       };
       recheckPeersPeriodically();
     });
+  };
+  this.shuffle = function() {
+    for (var i = 0; i < this.tasks.length; ++i) {
+      var target = i + Math.floor(Math.random() * (this.tasks.length - i));
+      
+      var temp = this.tasks[target];
+      this.tasks[target] = this.tasks[i];
+      this.tasks[i] = temp;
+    }
   };
   this.run = function() { this.giveWorkToIdlePeers(); };
   this.taskcount = 0;

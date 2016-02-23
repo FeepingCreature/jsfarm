@@ -18,13 +18,17 @@ fncache = {
 
 onmessage = function(e) {
   try {
-    var from = e.data.from, to = e.data.to;
+    var x_from = e.data.x_from, x_to = e.data.x_to;
+    var y_from = e.data.y_from, y_to = e.data.y_to;
     var dw = e.data.dw, dh = e.data.dh;
     var s2src = e.data.source;
     
-    if (dw > 4000 || dh > 4000) return; // DANGER DANGER
+    if (dw > 4000 || dh > 4000 || dw < 0 || dh < 0) throw "size limits exceeded";
     
-    var width = dw, height = to - from;
+    if (x_from < 0 || x_to > dw || y_from < 0 || y_to > dh) throw "render range outside image";
+    
+    var width = x_to - x_from, height = y_to - y_from;
+    if (width < 0 || height < 0) throw "render range negative";
     
     var settings = {width: width, height: height};
     
@@ -52,11 +56,13 @@ onmessage = function(e) {
           g = 0;
           b = 0;
         }
-        var base = (y - config.from) * dw + x;
-        array[base*4 + 0] = Math.max(0, Math.min(255, r * 255));
-        array[base*4 + 1] = Math.max(0, Math.min(255, g * 255));
-        array[base*4 + 2] = Math.max(0, Math.min(255, b * 255));
-        array[base*4 + 3] = 255;
+        var base = (y - config.y_from) * width + (x - config.x_from);
+        if (base >= 0 && base < array.length) {
+          array[base*4 + 0] = Math.max(0, Math.min(255, r * 255));
+          array[base*4 + 1] = Math.max(0, Math.min(255, g * 255));
+          array[base*4 + 2] = Math.max(0, Math.min(255, b * 255));
+          array[base*4 + 3] = 255;
+        }
       };
       
       var stdlib = {
@@ -85,21 +91,23 @@ onmessage = function(e) {
       
       fncache.source = s2src;
       fncache.settings = settings;
-      fncache.fn = function(from, to) {
+      fncache.fn = function(x_from, y_from, x_to, y_to) {
         
-        config.from = from;
-        config.to = to;
+        config.x_from = x_from;
+        config.y_from = y_from;
+        config.x_to = x_to;
+        config.y_to = y_to;
         config.count = 0;
         config.last_t = (new Date()).getTime();
         
         compiled.resetGlobals();
         
-        compiled.executeRange(from, to);
-        postMessage({kind: "finish", from: from, to: to, data: array});
+        compiled.executeRange(x_from, y_from, x_to, y_to);
+        postMessage({kind: "finish", x_from: x_from, y_from: y_from, x_to: x_to, y_to: y_to, data: array});
       };
     }
     
-    fncache.fn(from, to);
+    fncache.fn(x_from, y_from, x_to, y_to);
   } catch (err) {
     postMessage({kind: "error", error: err.toString()});
   }

@@ -72,30 +72,35 @@ function renderScene() {
   
   var ctx = canvas.getContext('2d');
   
-  var stepsize = 1;
+  var bsize = 16;
   
-  var progressbrush = ctx.createImageData(6, canvas.height);
+  if (canvas.width % bsize != 0 || canvas.height % bsize != 0) {
+    alert("Size of canvas must be a multiple of blocksize!");
+    return;
+  }
+  
+  var sidesbrush = ctx.createImageData(6, canvas.height);
   
   for (var y = 0; y < canvas.height; ++y) {
     for (var x = 0; x < 6; ++x) {
       var base = y * 6 + x;
-      progressbrush.data[base*4 + 0] = 200;
-      progressbrush.data[base*4 + 1] = 80;
-      progressbrush.data[base*4 + 2] = 80;
-      progressbrush.data[base*4 + 3] = 255;
+      sidesbrush.data[base*4 + 0] = 200;
+      sidesbrush.data[base*4 + 1] = 80;
+      sidesbrush.data[base*4 + 2] = 80;
+      sidesbrush.data[base*4 + 3] = 255;
     }
   }
   
-  var wipbrush = ctx.createImageData(canvas.width, 1);
+  var wipbrush = ctx.createImageData(bsize, bsize);
   
-  for (var base = 0; base < canvas.width; ++base) {
-    wipbrush.data[base*4 + 0] = 96;
-    wipbrush.data[base*4 + 1] = 200;
+  for (var base = 0; base < bsize * bsize; ++base) {
+    wipbrush.data[base*4 + 0] = 160;
+    wipbrush.data[base*4 + 1] = 220;
     wipbrush.data[base*4 + 2] = 255;
     wipbrush.data[base*4 + 3] = 255;
   }
   
-  var brush = ctx.createImageData(canvas.width, stepsize);
+  var brush = ctx.createImageData(bsize, bsize);
   
   /*
   var start = window.performance.now();
@@ -116,33 +121,42 @@ function renderScene() {
   var jsfarm = window.jsfarm;
   if (!jsfarm) return;
   
-  var addTaskFor = function(y) {
+  var addTaskFor = function(x_from, y_from) {
     var taskmarker = $('<div style="width: 8px; height: 8px; margin: -1px 0 0 -1px; background-color: #ff7777; border: 1px solid gray; display: inline-block; "></div>');
     tasks.append(taskmarker);
     
     var dw = canvas.width, dh = canvas.height;
-    var task = { source: fullsrc, dw: dw, dh: dh, from: y, to: Math.min(dh, y + stepsize) };
+    var task = {
+      source: fullsrc,
+      dw: dw, dh: dh,
+      x_from: x_from, x_to: x_from + bsize,
+      y_from, y_from, y_to: y_from + bsize
+    };
     jsfarm.addTask(task).
       onStart(function() {
-        ctx.putImageData(wipbrush, 0, y);
+        ctx.putImageData(wipbrush, x_from, y_from);
       }).
       onDone(function(msg) {
-        var from = task.from, to = task.to, wdata = msg.data;
+        var wdata = msg.data;
         var bdata = brush.data;
         for (var i = 0; i < bdata.length; ++i) {
           bdata[i] = wdata[i];
         }
-        ctx.putImageData(brush, 0, y);
+        ctx.putImageData(brush, x_from, y_from);
         taskmarker.css('background-color', '#77ff77');
       });
   };
   
-  ctx.putImageData(progressbrush, 0, 0);
-  ctx.putImageData(progressbrush, canvas.width - 6, 0);
+  ctx.putImageData(sidesbrush, 0, 0);
+  ctx.putImageData(sidesbrush, canvas.width - 6, 0);
   
-  for (var y = 0; y < canvas.height; y += stepsize) {
-    addTaskFor(y);
+  for (var y = 0; y < canvas.height; y += bsize) {
+    for (var x = 0; x < canvas.width; x += bsize) {
+      addTaskFor(x, y);
+    }
   }
+  
+  jsfarm.shuffle();
   
   jsfarm.run();
 }
