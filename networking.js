@@ -136,7 +136,7 @@ function JSFarm() {
     
     return new Peer(null, settings);
   };
-  this.start = function() {
+  this.connect = function() {
     var self = this;
     
     var peer = self._openPeer();
@@ -149,7 +149,7 @@ function JSFarm() {
     peer.on('connection', self.handleIncomingConnection.bind(self));
     peer.on('open', function(id) {
       setStatus("Status: connected as "+id);
-      window.onbeforeunload = Stop;
+      window.onbeforeunload = Disconnect;
       
       // sanity limit
       var threads = Math.min(16, parseInt($('#settings input#threads').val(), 10));
@@ -159,8 +159,8 @@ function JSFarm() {
     });
     $('#WorkerInfo').show().css('display', 'inline-block');
     
-    $('#StartButton').hide();
-    $('#StopButton').show();
+    $('#ConnectButton').hide();
+    $('#DisconnectButton').show();
   };
   this.taskqueue = new RobinQueue(0);
   this.checkQueue = function() {
@@ -728,7 +728,7 @@ function JSFarm() {
       this._startWorker(marker, this.workers.length);
     }
   };
-  this.stop = function() {
+  this.disconnect = function() {
     while (this.workers.length) {
       this.workers.pop().worker.terminate();
     }
@@ -737,18 +737,18 @@ function JSFarm() {
     
     this.peer.destroy();
     
-    $('#StopButton').hide();
-    $('#StartButton').show();
+    $('#DisconnectButton').hide();
+    $('#ConnectButton').show();
     setStatus("Status: not running");
   };
 }
 
-function Start() {
+function Connect() {
   window.jsfarm = new JSFarm;
-  window.jsfarm.start();
+  window.jsfarm.connect();
 }
 
-function Stop() {
-  window.jsfarm.stop();
+function Disconnect() {
+  window.jsfarm.disconnect();
   window.jsfarm = null;
 }

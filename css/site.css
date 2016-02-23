@@ -19,6 +19,11 @@
   margin-bottom: 0px;
 }
 
+.ajaxLink {
+  cursor: pointer;
+  cursor: hand;
+}
+
 .panel.status-panel {
   display: inline-block;
   background-color: #f4f4ff;

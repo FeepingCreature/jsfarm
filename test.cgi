@@ -55,7 +55,7 @@ cat <<'EOT'
 
 <div class="panel panel-primary">
   <div class="panel-body small-panel">
-    <a href="#" title="Settings" onclick="$('#settings').toggle()"><span class="glyphicon glyphicon-cog" aria-hidden="true"></span></a>
+    <a class="ajaxLink" title="Settings" onclick="$('#settings').toggle()"><span class="glyphicon glyphicon-cog" aria-hidden="true"></span></a>
     Background Processing
     &bull;
     <div class="panel panel-primary status-panel no-margin"><div class="panel-body smaller-panel" id="StatusPanel">Status: not running</div></div>
@@ -65,8 +65,8 @@ cat <<'EOT'
     </div>
     </div>
     &bull;
-    <button type="button" id="StartButton" onclick="Start();">Start</button>
-    <button type="button" id="StopButton" onclick="Stop();" class="starts-hidden">Stop</button>
+    <button type="button" id="ConnectButton" onclick="Connect();">Connect</button>
+    <button type="button" id="DisconnectButton" onclick="Disconnect();" class="starts-hidden">Disconnect</button>
     <div id="settings" class="starts-hidden">
       <hr class="sane">
       <div class="panel panel-primary no-margin">
@@ -166,7 +166,7 @@ cat <<'EOT'
       for (var i = 0; i < newfiles.length; ++i) {
         var newfile = newfiles[i];
         var li = $('<li role="presentation"></li>');
-        var a = $('<a href="#"></a>');
+        var a = $('<a class="ajaxLink"></a>');
         var name = newfile.name;
         var tn = null;
         if (newfile.name == null) {
