@@ -2176,8 +2176,9 @@ function make_struct_on(location, context, thing, names, values) {
   } else if (location == "heap") {
     if (context.js) {
       // heap grows up
-      base = context.js.mkVar("HP", "int", "struct_base");
-      context.js.set("int", "HP", js_op("+", "HP", res.type.size));
+      base = context.js.mkVar("malloc("+res.type.size+")", "int", "struct_base");
+      // base = context.js.mkVar("HP", "int", "struct_base");
+      // context.js.set("int", "HP", js_op("+", "HP", res.type.size));
     }
   } else throw ("internal error "+location);
   
@@ -2935,8 +2936,9 @@ function setupSysctx() {
     if (!js) {
       return {kind: "frame", entries: {}};
     }
-    var base = js.mkVar("HP", "int", "frame_base");
-    js.set("int", "HP", js_op("+", "HP", "__FRAME_SIZE__"));
+    var base = js.mkVar("malloc(__FRAME_SIZE__)", "int", "frame_base");
+    // var base = js.mkVar("HP", "int", "frame_base");
+    // js.set("int", "HP", js_op("+", "HP", "__FRAME_SIZE__"));
     var frame_obj = {
       kind: "frame",
       base: base,
@@ -3492,6 +3494,23 @@ function compile(files) {
   jsfile.addLine("var HP = foreign.stackborder|0;"); // grows up, overflow bounded
   
   jsfile.openSection("functions");
+  
+  jsfile.addLine("function malloc(size) {");
+  jsfile.indent();
+  jsfile.addLine("size = size | 0;");
+  jsfile.addLine("");
+  jsfile.addLine("var res = 0;");
+  jsfile.addLine("");
+  jsfile.addLine("res = HP | 0;");
+  jsfile.addLine("HP = ((HP|0) + (size|0))|0;");
+  jsfile.addLine("if ((HP|0) > (_memory_limit|0)) {");
+  jsfile.indent();
+  jsfile.addLine("error(1);");
+  jsfile.unindent();
+  jsfile.addLine("}");
+  jsfile.addLine("return res|0;");
+  jsfile.unindent();
+  jsfile.addLine("}");
   
   var get_context_and_eval_for_file = null;
   
