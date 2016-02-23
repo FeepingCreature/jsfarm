@@ -42,6 +42,134 @@ function log() {
   logJq(div);
 }
 
+var StorageHandlers = {
+  "gist.github.com": {
+    save: function(src) {
+      var obj = {
+        description: "JSFarm Saved File",
+        files: {
+          'file.cl': {content: src}
+        }
+      };
+      $.post("https://api.github.com/gists", JSON.stringify(obj), function(obj, status) {
+        if (status == "success") {
+          var raw_url = obj.files['file.cl'].raw_url;
+          // used to reconstruct the raw url on load
+          var file_id = /\/raw\/([^\/]*)/.exec(raw_url)[1];
+          var key = obj.html_url+"#"+file_id;
+          setAnchorState('gist', key);
+        }
+      });
+    },
+    load: function(onMatch, onComplete) {
+      var key = getAnchorState('gist');
+      if (key) {
+        onMatch();
+        var raw_url = key.replace("#", "/raw/").replace("gist.github.com/", "gist.githubusercontent.com/anonymous/");
+        $.get(raw_url, function(data) {
+          onComplete(data);
+        });
+      }
+    }
+  }
+};
+
+function storeAnchor(obj) {
+  var anchor_array = [];
+  for (var key in obj) if (obj.hasOwnProperty(key)) {
+    anchor_array.push(key+"="+obj[key]);
+  }
+  window.location.href = "#"+anchor_array.join(";");
+}
+
+function loadAnchor() {
+  var obj = {};
+  if (window.location.hash != "") {
+    var parts = window.location.hash.substr(1).split(";");
+    for (var i = 0; i < parts.length; ++i) {
+      var part = parts[i];
+      var bits = part.split("=");
+      var key = bits[0];
+      var value = bits.slice(1).join("=");
+      obj[key] = value;
+    }
+  }
+  return obj;
+}
+
+function setAnchorState(key, value) {
+  var obj = loadAnchor();
+  obj[key] = value;
+  storeAnchor(obj);
+}
+
+function getAnchorState(key) {
+  var obj = loadAnchor();
+  if (obj.hasOwnProperty(key)) return obj[key];
+  return null;
+}
+
+function Save() {
+  StorageHandlers["gist.github.com"].save(window.getFullSrc());
+}
+
+function OpenLoadingModal() {
+  $('#SiteLoadingModal').modal({
+    backdrop: 'static',
+    keyboard: false
+  });
+}
+
+function CloseLoadingModal() {
+  $('#SiteLoadingModal').modal('hide');
+}
+
+function LoadStateFromAnchor(onDone) {
+  var obj = loadAnchor();
+  
+  var numLoading = 0; // number of async tasks waiting to load
+  var startLoading = function() {
+    if (numLoading == 0) {
+      OpenLoadingModal();
+    }
+    numLoading ++;
+  };
+  var doneLoading = function() {
+    numLoading --;
+    if (numLoading == 0) {
+      CloseLoadingModal(); // done
+      onDone();
+    }
+  };
+  
+  for (var key in StorageHandlers) if (StorageHandlers.hasOwnProperty(key)) {
+    StorageHandlers[key].load(startLoading, function(src) {
+      var editor = window.editor;
+      editor.files = splitSrc(src);
+      editor.rebuildFileUi(editor.files);
+      doneLoading();
+    });
+  }
+  
+  if (obj.hasOwnProperty("image")) {
+    startLoading();
+    var canvas = document.getElementById('canvas');
+    var img = new Image;
+    img.src = obj.image;
+    img.onload = function() {
+      if (canvas.width != img.width || canvas.height != img.height) {
+        canvas.width = img.width;
+        canvas.height = img.height;
+      }
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      doneLoading();
+    };
+  }
+  
+  if (numLoading == 0) onDone(); // nothing to do, call immediately
+}
+
 function renderScene() {
   $(window).trigger("startRender");
   
@@ -66,9 +194,14 @@ function renderScene() {
   
   var canvas = document.getElementById('canvas');
   
-  canvas.width = Math.max(0, Math.min(4000, document.getElementById('width').value));
-  canvas.height = Math.max(0, Math.min(4000, document.getElementById('height').value));
-  $(canvas).css('height', canvas.height * 512 / canvas.width);
+  var nwidth = Math.max(0, Math.min(4000, document.getElementById('width').value));
+  var nheight = Math.max(0, Math.min(4000, document.getElementById('height').value));
+  
+  if (canvas.width != nwidth || canvas.height != nheight) {
+    canvas.width = nwidth;
+    canvas.height = nheight;
+    $(canvas).css('height', canvas.height * 512 / canvas.width);
+  }
   
   var ctx = canvas.getContext('2d');
   

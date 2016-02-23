@@ -15,7 +15,7 @@ function splitSrc(src) {
       var filename = part.slice(0, filename_end);
       
       // var src = part.slice(filename_end + 1);
-      var src = file_marker + part;
+      src = file_marker + part;
       
       for (var i = 0; i < files.length; ++i) {
         if (files[i].name == filename) {
@@ -27,10 +27,10 @@ function splitSrc(src) {
       }
       files.push({name: filename, src: src, rowbase: rowbase, clear: function(){}});
     } else if (part.length) {
-      var src = part;
+      src = part;
       files.push({name: null, src: src, rowbase: rowbase, clear: function(){}});
     }
-    rowbase += src.split("\n").length;
+    if (src) rowbase += src.split("\n").length;
   }
   return files;
 };

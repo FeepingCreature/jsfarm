@@ -5,6 +5,7 @@ function setReady(div) {
   div.css('padding-right', '3px');
   div.off('click');
   div.on('click', function() {
+    div.off('click');
     startUploadingToImgur(div);
   });
 }
@@ -61,6 +62,8 @@ function startUploadingToImgur(div) {
 
 function setUploadUrlTo(div, url) {
   div.css('min-width', '50%');
+  
+  setAnchorState('image', url);
   
   var url_input = $('<input type="text"></input>');
   url_input.css('width', '100%');

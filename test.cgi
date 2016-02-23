@@ -101,7 +101,7 @@ cat <<'EOT'
 EOT
 # make sure we start without an empty newline
 echo -n '<textarea id="editor">'
-cat scene.s2
+# cat scene.s2
 cat <<'EOT'
 </textarea>
 </span>
@@ -343,14 +343,28 @@ cat <<'EOT'
 <button type="button" id="RunButton" onclick="renderScene()">Run</button>
 <script>
   $(function() {
-    $("#RunButton").click();
+    LoadStateFromAnchor(function() {
+      $("#RunButton").click();
+    });
   });
 </script>
+<button type="button" id="SaveButton" onclick="Save()">Save</button>
 <hr>
 <p>Console</p>
 <div style="clear:both;"></div>
 <div style="border:1px solid; min-height: 10pt;" id="console">
 </div>
+</div>
+
+<div class="modal" id="SiteLoadingModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document" style="padding-top: 5%;">
+    <div class="modal-content">
+      <center class="modal-body">
+        <h2>Page is loading.</h2>
+        <h3>Please wait...</h3>
+      </center>
+    </div>
+  </div>
 </div>
 </body>
 </html>
