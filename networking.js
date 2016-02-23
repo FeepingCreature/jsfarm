@@ -448,7 +448,7 @@ function JSFarm() {
                   // late rejection
                   task.state = 'failed';
                   markNotInFlight(task);
-                  log(id, ": task", task.id, "failed:", msg.error);
+                  log(id, ": task", task.id, "failed:", msg.error, "(3)");
                   
                   advance();
                   return true;
@@ -468,6 +468,11 @@ function JSFarm() {
                   log_id(id, "task", task.id, "received data", data.length);
                   advance();
                   return true;
+                } else if (msg.kind == 'error') {
+                  // very late rejection
+                  task.state = 'failed';
+                  markNotInFlight(task);
+                  log(id, ": task", task.id, "failed:", msg.error, "(4)");
                 } else throw ("4 unexpected kind "+msg.kind);
               };
               con.onceSuccessful('data', reactTaskResultReceived);

@@ -570,7 +570,11 @@ function js_size(thing) {
   // if (thing.kind == "function") return 4; // function table offset
   if (thing.kind == "closure-pointer") return 8; // function table offset, heap offset
   if (thing.kind == "function-poly") return 0; // poly function cannot be stored, so encode in type
-  if (thing.kind == "closure-poly") return 4; // heap offset still
+  if (thing.kind == "closure-poly") {
+    // (type closure ...)'d
+    if (thing.hasOwnProperty("type") && thing.type.kind == "closure") return 8;
+    return 4; // heap offset still
+  }
   if (thing.kind == "frame" && thing.hasOwnProperty("base")) return 4;
   fail(thing, "what's its size?? "+typeof thing+" "+JSON.stringify(thing));
 }
@@ -664,7 +668,7 @@ function reconstruct(js, thing, array) {
     return { rest: rest, value: value };
   }
   
-  fail(thing, "unimplemented!");
+  fail(thing, "unimplemented: reconstruct "+type);
 }
 
 function reconstruct_array(js, args, array) {
@@ -1688,7 +1692,7 @@ function lambda_internal(context, thing, rest) {
       }
       
       if (early_type && JSON.stringify(early_type) != JSON.stringify(ret_type)) {
-        fail(thing, "function return type does not match declared return type");
+        fail(thing, "function return type does not match declared return type: "+JSON.stringify(early_type)+" and "+JSON.stringify(ret_type));
       }
       
       js.closeSection("body");
@@ -2131,6 +2135,7 @@ function make_struct(context, thing, names, values) {
     
     var type = js_type(value);
     var size = js_size(value);
+    // log(name, ": size", size, "for", JSON.stringify(value));
     
     res.type.types[name] = type;
     res.type.offsets[name] = offset;
@@ -3390,18 +3395,26 @@ function setupSysctx() {
   });
   
   defun(sysctx, "type", 2, function(context, thing, type, value) {
-    if (typeof value == "object" && value && value.kind == "function-poly") {
-      // TODO
-      // return value.withFixedType(context.js, type);
-      value.type = type;
-      return value;
-    }
-    if (typeof value == "object" && value && value.kind == "closure-poly") {
-      if (context.js) {
-        return value.withFixedType(context.js, type);
-      } else {
-        // lazy?
+    if (typeof value == "object" && value) {
+      if (value.kind == "function-poly") {
+        // TODO
+        // return value.withFixedType(context.js, type);
         value.type = type;
+        return value;
+      }
+      if (value.kind == "closure-poly") {
+        if (context.js) {
+          return value.withFixedType(context.js, type);
+        } else {
+          // lazy?
+          value.type = type;
+          return value;
+        }
+      }
+      if (value.kind == "closure-pointer") {
+        var t1 = JSON.stringify(value.type);
+        var t2 = JSON.stringify(type);
+        if (t1 != t2) fail(thing, "different type already assigned: "+t1+" and "+t2);
         return value;
       }
     }
