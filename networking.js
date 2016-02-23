@@ -354,9 +354,13 @@ function JSFarm() {
               var self = exchanges[channel].timer;
               if (self.hasOwnProperty('task')) {
                 // back to queue!
-                log("timeout on", id, "reenqueue", self.task.id);
+                log(id, ": timeout on", channel, "reenqueue", self.task.id);
                 self.task.state = 'queued';
                 markNotInFlight(self.task);
+                // controversial:
+                // don't start a new exchange here
+                // the peer has demonstrated that it cannot render this task in a timely manner
+                // leave it to another peer - hope that one shows up.
               }
               con_release();
               exchanges[channel] = null;
@@ -392,8 +396,8 @@ function JSFarm() {
                 if (msg.kind == 'pong') {
                   to = time();
                   advance();
-                  return true;
                 } else throw ("1 unexpected kind "+msg.kind);
+                return true;
               });
               yield;
               return to - from;
@@ -405,10 +409,10 @@ function JSFarm() {
                 if (msg.channel != channel) return;
                 
                 if (msg.kind == 'accepted') {
+                  // log(id, ": Task on", msg.channel, "has been accepted.");
                   task.state = 'processing';
                   result = true;
                   advance();
-                  return true;
                 } else if (msg.kind == 'rejected') {
                   // back in the queue you go
                   task.state = 'queued';
@@ -417,8 +421,8 @@ function JSFarm() {
                   log_id(id, "task", task.id, "rejected:", msg.reason);
                   result = false;
                   advance();
-                  return true;
                 } else throw ("2 unexpected kind "+msg.kind);
+                return true;
               };
               task.state = 'asking';
               tasksInFlight.push(task);
@@ -453,8 +457,8 @@ function JSFarm() {
                   task.state = 'failed';
                   markNotInFlight(task);
                   log(id, ": task", task.id, "failed:", msg.error, "(3)");
-                  
-                  advance();
+                  cleanup(false);
+                  // don't bother reentering
                   return true;
                 } else if (msg.kind == 'progress') {
                   var frac = msg.value;
@@ -480,6 +484,14 @@ function JSFarm() {
                   task.state = 'failed';
                   markNotInFlight(task);
                   log(id, ": task", task.id, "failed:", msg.error, "(4)");
+                  cleanup(false);
+                  // don't bother reentering
+                  return true;
+                } else if (msg.kind == 'done') {
+                  log("Yes, I know that task", task.id, "is done. Why did you tell me twice? (Tolerated. But why??)");
+                } else if (msg.kind == 'progress') {
+                  var frac = msg.value;
+                  task.onProgress(frac);
                 } else throw ("4 unexpected kind "+msg.kind);
               };
               con.onceSuccessful('data', reactTaskResultReceived);

@@ -56,7 +56,7 @@ var StorageHandlers = {
           var raw_url = obj.files['file.cl'].raw_url;
           // used to reconstruct the raw url on load
           var file_id = /\/raw\/([^\/]*)/.exec(raw_url)[1];
-          var key = obj.html_url+"#"+file_id;
+          var key = file_id+","+obj.html_url;
           setAnchorState('gist', key);
         }
       });
@@ -65,7 +65,14 @@ var StorageHandlers = {
       var key = getAnchorState('gist');
       if (key) {
         onMatch();
-        var raw_url = key.replace("#", "/raw/").replace("gist.github.com/", "gist.githubusercontent.com/anonymous/");
+        var halves = key.split(",");
+        if (halves.length < 2) {
+          log("Invalid URL: cannot load gist!");
+          onComplete("");
+          return;
+        }
+        
+        var raw_url = halves[1].replace("gist.github.com/", "gist.githubusercontent.com/anonymous/")+"/raw/"+halves[0];
         $.get(raw_url, function(data) {
           onComplete(data);
         });
@@ -155,7 +162,7 @@ function LoadStateFromAnchor(onDone) {
     startLoading();
     var canvas = document.getElementById('canvas');
     var img = new Image;
-    img.src = obj.image;
+    img.crossOrigin = '';
     img.onload = function() {
       if (canvas.width != img.width || canvas.height != img.height) {
         canvas.width = img.width;
@@ -165,6 +172,7 @@ function LoadStateFromAnchor(onDone) {
       ctx.drawImage(img, 0, 0);
       doneLoading();
     };
+    img.src = obj.image;
   }
   
   if (numLoading == 0) onDone(); // nothing to do, call immediately
@@ -183,7 +191,13 @@ function renderScene() {
     file.clear();
   }
   
-  var jsource = compile(files);
+  var jsource = "";
+  try {
+    jsource = compile(files);
+  } catch (ex) {
+    log("Could not compile scene: "+ex);
+    return;
+  }
   
   var lines = jsource.split("\n");
   for (var i = 0; i < lines.length; ++i)
@@ -194,8 +208,8 @@ function renderScene() {
   
   var canvas = document.getElementById('canvas');
   
-  var nwidth = Math.max(0, Math.min(4000, document.getElementById('width').value));
-  var nheight = Math.max(0, Math.min(4000, document.getElementById('height').value));
+  var nwidth = Math.max(0, Math.min(4000, document.getElementById('width').value|0));
+  var nheight = Math.max(0, Math.min(4000, document.getElementById('height').value|0));
   
   if (canvas.width != nwidth || canvas.height != nheight) {
     canvas.width = nwidth;
@@ -205,7 +219,7 @@ function renderScene() {
   
   var ctx = canvas.getContext('2d');
   
-  var bsize = 16;
+  var bsize = document.getElementById('bsize').value|0;
   
   if (canvas.width % bsize != 0 || canvas.height % bsize != 0) {
     alert("Size of canvas must be a multiple of blocksize!");

@@ -82,9 +82,11 @@ cat <<'EOT'
           <label for="ident" title="Identifier for your computer in statistics. Default: connection id.">Name</label>
           <input type="text" size="10" id="ident" name="ident" value="">
           <label for="width" title="Width of the rendered image. Please be considerate.">Width</label>
-          <input type="text" size="6" id="width" name="width" value="512">
+          <input type="text" size="4" id="width" name="width" value="512">
           <label for="height" title="Height of the rendered image. Please be considerate.">Height</label>
-          <input type="text" size="6" id="height" name="height" value="512">
+          <input type="text" size="4" id="height" name="height" value="512">
+          <label for="bsize" title="Edge size of a task-block, the basic unit of rendering.">Blocksize</label>
+          <input type="text" size="2" id="bsize" name="bsize" value="8">
         </div>
       </div>
     </div>
