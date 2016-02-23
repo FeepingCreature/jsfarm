@@ -144,6 +144,12 @@ function renderScene() {
         }
         ctx.putImageData(brush, x_from, y_from);
         taskmarker.css('background-color', '#77ff77');
+      }).
+      onProgress(function(frac) {
+        var blend = function(from, to, frac) {
+          return from + Math.floor((to - from) * frac);
+        };
+        taskmarker.css('background-color', 'rgb('+blend(255, 128, frac)+', '+blend(128, 255, frac)+', 128)');
       });
   };
   

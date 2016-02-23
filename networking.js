@@ -179,6 +179,10 @@ function JSFarm() {
         self.checkQueue(con);
       };
       
+      wrapper.onProgress = function(frac) {
+        con.send({kind: 'progress', value: frac, channel: msg.channel});
+      };
+      
       wrapper.onError = function(error) {
         con.send({kind: 'error', error: error, channel: msg.channel});
         delete wrapper.onError;
@@ -452,6 +456,9 @@ function JSFarm() {
                   
                   advance();
                   return true;
+                } else if (msg.kind == 'progress') {
+                  var frac = msg.value;
+                  task.onProgress(frac);
                 } else throw ("3 unexpected kind "+msg.kind);
               };
               con.onceSuccessful('data', reactTaskDone);
@@ -610,12 +617,14 @@ function JSFarm() {
       id: this.taskcount++,
       message: msg,
       onStart: function() { },
-      onDone: function() { }
+      onDone: function() { },
+      onProgress: function(frac) { }
     };
     this.tasks.push(task);
     return {
+      onStart: function(fn) { task.onStart = fn; return this; },
       onDone: function(fn) { task.onDone = fn; return this; },
-      onStart: function(fn) { task.onStart = fn; return this; }
+      onProgress: function(fn) { task.onProgress = fn; return this; }
     };
   };
   this.peekQueuedTask = function() {
@@ -699,6 +708,7 @@ function JSFarm() {
           workerWrapper.onError(msg.error);
         }
       } else if (msg.kind == "progress") {
+        workerWrapper.onProgress(msg.progress);
         // if (update) update((msg.progress * 100 + 0.5)|0);
       } else if (msg.kind == "alert") {
         if (!busy) { // otherwise just drop it, it's not that important, we get lots
