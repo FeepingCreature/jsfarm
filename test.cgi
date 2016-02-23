@@ -103,7 +103,7 @@ cat <<'EOT'
 EOT
 # make sure we start without an empty newline
 echo -n '<textarea id="editor">'
-# cat scene.s2
+cat scene.s2
 cat <<'EOT'
 </textarea>
 </span>
