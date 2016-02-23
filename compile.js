@@ -411,6 +411,9 @@ function flatten(base, thing) {
   if (thing.kind == "closure-poly") {
     return flatten(base, thing.base);
   }
+  if (thing.kind == "function-poly") {
+    return [];
+  }
   if (thing.kind == "closure") {
     if (!thing.hasOwnProperty("value")) {
       // see above - interpreted closure to compiled function
@@ -427,7 +430,10 @@ function flatten_type(type) {
   }
   if (type.kind == "closure-poly") {
     if (type.base.hasOwnProperty("base")) return ["int"]; // base pointer
-    else return []; // baseless frame (interpreted frinstance)
+    else return []; // baseless closure (interpreted frinstance)
+  }
+  if (type.kind == "function-poly") {
+    return [];
   }
   // type of frame is just frame - frames are special snowflakes
   if (type.kind == "frame") {
@@ -462,6 +468,9 @@ function get_type_signature(thing) {
   }
   if (thing.kind == "closure-poly") {
     return unique_id_for(thing, "closure_poly"); // each poly-closure is "unique"
+  }
+  if (thing.kind == "function-poly") {
+    return unique_id_for(thing, "function_poly"); // each poly-function is "unique"
   }
   if (thing.kind == "closure-pointer") {
     return "closure_pointer_"+get_type_signature(thing.base.base)+"_"+get_type_signature(thing.fnptr.offset)+"_";
@@ -592,6 +601,7 @@ function reconstruct(js, thing, array) {
   else if (thing.kind == "closure") type = "closure";
   else if (thing.kind == "closure-poly") type = "closure-poly";
   else if (thing.kind == "closure-pointer") type = "closure-pointer";
+  else if (thing.kind == "function-poly") type = "function-poly";
   else fail(thing, "how to reconstruct "+typeof thing+" "+thing.kind);
   
   if (thing.kind == "bool") {
@@ -649,6 +659,10 @@ function reconstruct(js, thing, array) {
     res.fnptr.offset = array[1];
     if (!res.fnptr.offset) throw "what";
     return {value: res, rest: array.slice(2)};
+  }
+  if (type == "function-poly") {
+    var res = flatclone(thing);
+    return {value: res, rest: array};
   }
   if (type == "closure-poly") {
     var res = flatclone(thing);
@@ -2802,7 +2816,7 @@ function setupSysctx() {
   var sysctx = new Context();
   
   defun(sysctx, "seq", function(context, thing, array) {
-    if (!array.length) thing.fail("expect nonzero arguments for 'seq'");
+    if (!array.length) return null;
     return array[array.length-1];
   });
   sysctx.add("dump", {
