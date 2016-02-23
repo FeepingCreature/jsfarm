@@ -1,5 +1,3 @@
-functions = {};
-
 importScripts('compile.js');
 importScripts('files.js');
 
@@ -12,6 +10,12 @@ function log() {
   // TODO postMessage
 }
 
+fncache = {
+  source: null,
+  settings: {},
+  fn: null
+};
+
 onmessage = function(e) {
   try {
     var from = e.data.from, to = e.data.to;
@@ -20,65 +24,82 @@ onmessage = function(e) {
     
     if (dw > 4000 || dh > 4000) return; // DANGER DANGER
     
-    var asmjs = null;
-    if (functions.hasOwnProperty(s2src)) {
-      asmjs = functions[s2src];
-    } else {
+    var width = dw, height = to - from;
+    
+    var settings = {width: width, height: height};
+    
+    if (JSON.stringify(settings) != JSON.stringify(fncache.settings) || s2src != fncache.source) {
       var files = splitSrc(s2src);
       var jssrc = compile(files);
       asmjs = new Function('stdlib', 'foreign', 'heap', jssrc);
-      functions[s2src] = asmjs;
+      
+      var array = new Uint8Array(4 * width * height);
+      
+      var config = {};
+      
+      var hit = function(x, y, success, r, g, b) {
+        config.count++;
+        
+        var t = (new Date()).getTime();
+        if (t - config.last_t > 100) {
+          var progress = config.count / (width * height);
+          postMessage({kind: "progress", progress: progress});
+          config.last_t = t;
+        }
+        
+        if (!success) {
+          r = 0.25;
+          g = 0;
+          b = 0;
+        }
+        var base = (y - config.from) * dw + x;
+        array[base*4 + 0] = Math.max(0, Math.min(255, r * 255));
+        array[base*4 + 1] = Math.max(0, Math.min(255, g * 255));
+        array[base*4 + 2] = Math.max(0, Math.min(255, b * 255));
+        array[base*4 + 3] = 255;
+      };
+      
+      var stdlib = {
+        Infinity: Infinity,
+        Math: Math,
+        Int32Array: Int32Array,
+        Float32Array: Float32Array,
+        Float64Array: Float64Array,
+      };
+      
+      var errmsgs = [
+        "Internal error: stub function called!",
+        "Available memory exceeded!",
+      ];
+      
+      var compiled = asmjs(stdlib, {
+        dw: dw,
+        dh: dh,
+        hit: hit,
+        error: function(code) { throw ("asm.js: "+errmsgs[code]); },
+        alert_: alert_,
+        isFinite: isFinite,
+        stackborder: 1024*512,
+        memory_limit: 1024*32768,
+      }, new ArrayBuffer(1024*32768));
+      
+      fncache.source = s2src;
+      fncache.settings = settings;
+      fncache.fn = function(from, to) {
+        
+        config.from = from;
+        config.to = to;
+        config.count = 0;
+        config.last_t = (new Date()).getTime();
+        
+        compiled.resetGlobals();
+        
+        compiled.executeRange(from, to);
+        postMessage({kind: "finish", from: from, to: to, data: array});
+      };
     }
     
-    var width = dw, height = to - from;
-    
-    var array = new Uint8Array(4 * width * height);
-    
-    var count = 0;
-    
-    var last_t = (new Date()).getTime();
-    var hit = function(x, y, success, r, g, b) {
-      count++;
-      
-      var t = (new Date()).getTime();
-      if (t - last_t > 100) {
-        var progress = count / (width * height);
-        postMessage({kind: "progress", progress: progress});
-        last_t = t;
-      }
-      
-      if (!success) {
-        r = 0.25;
-        g = 0;
-        b = 0;
-      }
-      var base = (y - from) * dw + x;
-      array[base*4 + 0] = Math.max(0, Math.min(255, r * 255));
-      array[base*4 + 1] = Math.max(0, Math.min(255, g * 255));
-      array[base*4 + 2] = Math.max(0, Math.min(255, b * 255));
-      array[base*4 + 3] = 255;
-    };
-    
-    var stdlib = {
-      Infinity: Infinity,
-      Math: Math,
-      Int32Array: Int32Array,
-      Float32Array: Float32Array,
-      Float64Array: Float64Array,
-    };
-    
-    var compiled = asmjs(stdlib, {
-      dw: dw,
-      dh: dh,
-      hit: hit,
-      abort: function() { throw "'abort' was called from asm.js"; },
-      alert_: alert_,
-      isFinite: isFinite,
-      stackborder: 1024*4096
-    }, new ArrayBuffer(1024*8192));
-    
-    compiled.executeRange(from, to);
-    postMessage({kind: "finish", from: from, to: to, data: array});
+    fncache.fn(from, to);
   } catch (err) {
     postMessage({kind: "error", error: err.toString()});
   }

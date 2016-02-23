@@ -2426,7 +2426,7 @@ function emitStubFunction(js, type) {
     js.set(partypes[i], parnames[i], parnames[i]);
   }
   
-  js.addLine("abort();");
+  js.addLine("error(0);");
   
   if (type.ret == "void") { js.addLine("return;"); }
   else if (type.ret == "int") { js.addLine("return 0;"); }
@@ -3467,12 +3467,13 @@ function compile(files) {
   jsfile.addLine("var Float32Array = stdlib.Float32Array;");
   jsfile.addLine("var Float64Array = stdlib.Float64Array;");
   
-  jsfile.addLine("var abort = foreign.abort;");
   jsfile.addLine("var alert_ = foreign.alert_;");
+  jsfile.addLine("var error = foreign.error;");
   jsfile.addLine("var isFinite = foreign.isFinite;");
   jsfile.addLine("var hit = foreign.hit;");
   jsfile.addLine("var dw = foreign.dw|0;");
   jsfile.addLine("var dh = foreign.dh|0;");
+  jsfile.addLine("var _memory_limit = foreign.memory_limit|0;");
   
   jsfile.addLine("var mem_i32 = new Int32Array(heap);");
   jsfile.addLine("var mem_f32 = new Float32Array(heap);");
@@ -3492,6 +3493,8 @@ function compile(files) {
   jsfile.addLine("var SP = foreign.stackborder|0;"); // grows down, underflow bounded
   // heap pointer
   jsfile.addLine("var HP = foreign.stackborder|0;"); // grows up, overflow bounded
+  // backup
+  jsfile.addLine("var stackborder = foreign.stackborder|0;")
   
   jsfile.openSection("functions");
   
@@ -3583,6 +3586,10 @@ function compile(files) {
   
   // log("bake");
   
+  jsfile.openSection("function");
+  jsfile.addLine("function resetGlobals() {");
+  jsfile.indent();
+  
   for (var i = 0; i < context_list.length; ++i) {
     var context = context_list[i].context;
     while (context) { // bake for entire list of frozen clones
@@ -3593,12 +3600,17 @@ function compile(files) {
           var jsname = jsfile.allocName("g", key);
           // log("baking "+jsname);
           jsfile.addLine("variables", "var "+jsname+" = "+js_tag_init("float", value.value)+";");
+          jsfile.set("float", jsname, js_tag_init("float", value.value));
           context.table[key] = {kind: "variable", type: "float", value: jsname};
         }
       }
       context = context.sup;
     }
   }
+  
+  jsfile.unindent();
+  jsfile.addLine("}");
+  jsfile.closeSection("function");
   
   // last lambda is compiled, not interpreted
   var callctx = new Context(main.context, jsfile);
@@ -3613,11 +3625,16 @@ function compile(files) {
   
   jsfile.addLine("var x = 0;");
   jsfile.addLine("var y = 0;");
+  jsfile.addLine("var HP_snapshot = 0;");
+  
+  jsfile.addLine("HP = stackborder|0;"); // reset to start, as innermost as we can
   
   // unroll any number of nested argument-less lambdas (only need one, but why not)
   while (main_fn.arity == 0) {
     main_fn = callctx.eval(list({kind: "quote", value: main_fn}));
   }
+  
+  jsfile.addLine("HP_snapshot = HP|0;");
   
   jsfile.addLine("y = from|0;");
   jsfile.addLine("while ((y|0) < (to|0)) {");
@@ -3625,6 +3642,7 @@ function compile(files) {
   jsfile.addLine("x = 0;");
   jsfile.addLine("while ((x|0) < (dw|0)) {");
   jsfile.indent();
+  jsfile.addLine("HP = HP_snapshot|0;"); // reset again
   
   // pass lambda-to-call to trace
   var trace_args = [
@@ -3698,7 +3716,9 @@ function compile(files) {
   
   jsfile.emitFunctionTables();
   
-  jsfile.addLine("return {executeRange: executeRange};");
+  jsfile.addLine("return {resetGlobals: resetGlobals, executeRange: executeRange};");
+  
+  jsfile.replace("malloc(0)", "HP"); // peephole
   
   return jsfile.all_source();
 }
