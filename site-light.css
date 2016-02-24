@@ -1,0 +1,11 @@
+#progress-pane {
+  background-color:rgba(255,255,255,0.7);
+}
+
+.task-bar-list {
+  border-color: black;
+}
+
+.label-outside {
+  color: black;
+}

@@ -46,7 +46,7 @@ onmessage = function(e) {
         config.count++;
         
         var t = (new Date()).getTime();
-        if (t - config.last_t > 100) {
+        if (t - config.last_t > 1000) {
           var progress = config.count / (width * height);
           postMessage({kind: "progress", progress: progress});
           config.last_t = t;
@@ -100,7 +100,7 @@ onmessage = function(e) {
         config.x_to = x_to;
         config.y_to = y_to;
         config.count = 0;
-        config.last_t = (new Date()).getTime();
+        config.last_t = (new Date()).getTime() - 800; // initial message already after 200ms
         
         compiled.resetGlobals();
         

@@ -17,13 +17,16 @@ cat <<'EOT'
 EOT
 THEME="css/bootstrap-theme.min.css"
 CMTHEME="neat"
+MYTHEME="site-light"
 if [ "$QUERY_STRING" = "dark" ]
 then
   THEME="css/bootstrap-cyborg.min.css"
   CMTHEME="lesser-dark"
+  MYTHEME="site-dark"
 fi
 echo "<link rel=\"stylesheet\" href=\"$THEME\">"
 echo "<link rel=\"stylesheet\" href=\"css/$CMTHEME.css\">"
+echo "<link rel=\"stylesheet\" href=\"$MYTHEME.css\">"
 cat <<'EOT'
 <link rel="stylesheet" href="css/site.css">
 <link rel="stylesheet" href="addon/lint/lint.css">
@@ -33,10 +36,12 @@ cat <<'EOT'
 <script src="bootstrap.min.js"></script>
 
 <script src="jquery.color-2.1.0.min.js"></script>
+<script src="js.cookie-2.1.0.min.js"></script>
 
 <script src="lib/codemirror.js"></script>
 <link rel="stylesheet" href="lib/codemirror.css">
 <script src="mode/scheme/scheme.js"></script>
+<script src="addon/edit/matchbrackets.js"></script>
 <script src="addon/selection/mark-selection.js"></script>
 
 <script src="imgur_canvas.js"></script>
@@ -47,6 +52,7 @@ cat <<'EOT'
 <script src="time.js"></script>
 <script src="main.js"></script>
 <script src="networking.js"></script>
+<script src="progress.js"></script>
 
 </head>
 <body>
@@ -106,23 +112,46 @@ cat <<'EOT'
 </td>
 <td>
 
-<div id="canvas-frame">
-<canvas id="canvas" width="512" height="512" style="border: 1px solid; width: 512px; height: 512px;"></canvas>
+<div id="result_area">
+  <ul class="nav nav-tabs" role="tablist">
+    <li role="presentation" class="active"><a href="#image-pane" aria-controls="image-pane" role="tab" data-toggle="tab" id="image-tab">Render</a></li>
+    <li role="presentation"><a href="#progress-pane" aria-controls="progress-pane" role="tab" data-toggle="tab" id="progress-tab">Progress</a></li>
+  </ul>
+
+  <div class="tab-content" style="position:relative;">
+    <div role="tabpanel" class="tab-pane active" aria-labelledby="image-tab" id="image-pane" style="display: inherit;">
+      <canvas id="canvas" width="512" height="512" style="border: 1px solid; width: 512px; height: 512px;"></canvas>
+    </div>
+    <div role="tabpanel" class="tab-pane panel panel-default" aria-labelledby="progress-tab" id="progress-pane">
+      <div class="panel-body" style="padding: 0px;">
+        <div id="progress">
+          Progress Report TODO
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 </td></tr></table>
 
 <script>
   setupCanvasUpload($('#canvas'));
+  
+  $('#result_area > .nav-tabs a').click(function (e) {
+    e.preventDefault();
+    $(this).tab('show');
+  });
+  
+  LoadSettings();
   var editor_cfg = {
     lineNumbers: true,
     mode: "scheme",
+    matchBrackets: true,
     gutters: ["error-gutter"],
 EOT
 echo "    theme: \"$CMTHEME\""
 cat <<'EOT'
   };
-  var original_src = $('#editor')[0].value;
   
   /** @constructor */
   function EditorUi() {

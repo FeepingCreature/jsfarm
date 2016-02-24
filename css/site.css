@@ -19,6 +19,38 @@
   margin-bottom: 0px;
 }
 
+#progress {
+  width: 512px;
+  height: 505px;
+  margin-bottom: 5.5px;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+#progress-pane {
+  position:absolute;
+  top:0px;
+  margin:0px;
+  margin-bottom:5px;
+}
+
+.task-bar-list {
+  width: 100px;
+  margin: 5px;
+  border-radius: 2.5px;
+  border: 1px solid;
+}
+
+/* turn off progress bar animations */
+.progress .progress-bar {
+    -webkit-transition: none;
+    -moz-transition: none;
+    -ms-transition: none;
+    -o-transition: none;
+    transition: none;
+}​
+
+/* href="#" overwrites our anchor state, so use class="ajaxLink" instead */
 .ajaxLink {
   cursor: pointer;
   cursor: hand;

@@ -72,7 +72,9 @@ function RobinQueue(limit) {
   }
   this.popTask = function() {
     if (!this.tasks.length) return null;
-    return this.tasks.shift(); // fifo
+    var task = this.tasks.shift(); // fifo
+    this.penalizeTaskOrigin(task); // Only now, that we're actually starting to compute it!
+    return task;
   };
   this.addTaskMaybe = function(task) {
     if (this.tasks.length == this.limit) {
@@ -99,7 +101,6 @@ function RobinQueue(limit) {
       
       this.tasks = this.tasks.splice(worstscore_id, 1);
     }
-    this.penalizeTaskOrigin(task);
     this.tasks.push(task);
     return true;
   };
@@ -110,6 +111,7 @@ function JSFarm() {
   this.workers = [];
   
   this.tasks = [];
+  this.progress_ui = new ProgressUI(this.tasks);
   
   this.peerlist = [];
   this.peerlist_last_updated = null;
@@ -118,6 +120,7 @@ function JSFarm() {
   
   this.connection_limit = 10;
   this.connections = {};
+  this.id = null;
   
   this._openPeer = function() {
     log("open peer");
@@ -149,10 +152,11 @@ function JSFarm() {
     peer.on('connection', self.handleIncomingConnection.bind(self));
     peer.on('open', function(id) {
       setStatus("Status: connected as "+id);
+      self.id = id;
       window.onbeforeunload = Disconnect;
       
       // sanity limit
-      var threads = Math.min(16, parseInt($('#settings input#threads').val(), 10));
+      var threads = Math.min(36, document.getElementById('threads').value|0);
       
       self.startWorkers(threads);
       self.taskqueue.limit = threads;
@@ -184,7 +188,7 @@ function JSFarm() {
       };
       
       wrapper.onError = function(error) {
-        con.send({kind: 'error', error: error, channel: msg.channel});
+        con.send({kind: 'error', fatal: true, error: error, channel: msg.channel});
         delete wrapper.onError;
       };
       
@@ -213,6 +217,15 @@ function JSFarm() {
       }
     };
     
+    var handleLabel = function(msg) {
+      if (msg.kind == "whoareyou") {
+        var jq_ident = ""+document.getElementById('ident').value;
+        if (jq_ident == "") jq_ident = null;
+        
+        con.send({kind: "iamcalled", label: jq_ident || self.id, channel: msg.channel});
+      }
+    }
+    
     var default_obj = {};
     
     var handleTask = function(msg) {
@@ -222,7 +235,7 @@ function JSFarm() {
       }
       if (msg.kind == 'task') {
         var task = new RobinTask(con, function() {
-          con.send({kind: 'error', reason: 'task evicted from queue', channel: msg.channel});
+          con.send({kind: 'error', fatal: false, reason: 'task evicted from queue', channel: msg.channel});
         });
         task.msg = msg;
         task.default_obj = default_obj;
@@ -240,6 +253,7 @@ function JSFarm() {
     };
     
     con.on('data', handlePing);
+    con.on('data', handleLabel);
     con.on('data', handleTask);
   };
   this.listAllPeersDelayed = function(fn) {
@@ -302,6 +316,7 @@ function JSFarm() {
         var con_release = function() {
           if (--con_refs == 0) {
             log("nothing relevant happening on connection - close.");
+            self.progress_ui.onCloseConnection(id);
             con.close();
           }
         };
@@ -320,9 +335,25 @@ function JSFarm() {
           }
         };
         
+        var failTask = function(task) {
+          task.state = 'failed';
+          self.progress_ui.onTaskAborted(task);
+          markNotInFlight(task);
+        };
+        
+        var reenqueueTask = function(task) {
+          if (task.state != 'asking') {
+            self.progress_ui.onTaskAborted(task);
+          }
+          task.state = 'queued';
+          task.assigned_to = null;
+          markNotInFlight(task);
+        };
+        
         var finishTask = function(task, resultInfo) {
           task.state = 'done';
           task.onDone(resultInfo);
+          self.progress_ui.onTaskCompleted(task);
           markNotInFlight(task);
         };
         
@@ -332,10 +363,11 @@ function JSFarm() {
             for (var i = 0; i < tasksInFlight.length; ++i) {
               var task = tasksInFlight[i];
               if (!task) continue;
-              task.state = 'queued';
+              reenqueueTask(task);
               log_id(id, "task", task.id, "reset due to connection loss");
             }
             log("remove connection "+id+" because "+reason);
+            self.progress_ui.onCloseConnection(id);
             delete self.connections[id];
             maybeSpawnNewConnections();
           };
@@ -351,12 +383,11 @@ function JSFarm() {
             exchanges[channel] = exchange(channel);
             exchanges[channel].timer = new TimeoutTimer(50000, function() {
               log_id(id, "task timed out");
-              var self = exchanges[channel].timer;
-              if (self.hasOwnProperty('task')) {
+              var timer = exchanges[channel].timer;
+              if (timer.hasOwnProperty('task')) {
                 // back to queue!
                 log(id, ": timeout on", channel, "reenqueue", self.task.id);
-                self.task.state = 'queued';
-                markNotInFlight(self.task);
+                reenqueueTask(timer.task);
                 // controversial:
                 // don't start a new exchange here
                 // the peer has demonstrated that it cannot render this task in a timely manner
@@ -379,14 +410,13 @@ function JSFarm() {
             };
             
             con_claim();
-            function cleanup(quietly) {
+            function cleanup() {
               con_release();
-              if (!quietly) log_id(id, "task cleanup: kill timer on channel", channel);
               exchanges[channel].timer.kill();
               exchanges[channel] = null;
             }
             
-            var time = function*() {
+            var time_response = function*() {
               var from = time();
               var to = null;
               con.send({kind: "ping", channel: channel});
@@ -396,11 +426,25 @@ function JSFarm() {
                 if (msg.kind == 'pong') {
                   to = time();
                   advance();
+                  return true;
                 } else throw ("1 unexpected kind "+msg.kind);
-                return true;
               });
               yield;
               return to - from;
+            };
+            
+            var get_label = function*() {
+              con.send({kind: "whoareyou", channel: channel});
+              var res = null;
+              con.onceSuccessful('data', function(msg) {
+                if (msg.channel != channel) return;
+                if (msg.kind != 'iamcalled') throw ("1.1 unexpected kind "+msg.kind);
+                res = msg.label;
+                advance();
+                return true;
+              });
+              yield;
+              return res;
             };
             
             var taskAccepted = function*(task) {
@@ -411,14 +455,13 @@ function JSFarm() {
                 if (msg.kind == 'accepted') {
                   // log(id, ": Task on", msg.channel, "has been accepted.");
                   task.state = 'processing';
+                  task.assigned_to = id;
+                  self.progress_ui.onTaskAccepted(task);
                   result = true;
                   advance();
                 } else if (msg.kind == 'rejected') {
-                  // back in the queue you go
-                  task.state = 'queued';
-                  markNotInFlight(task);
-                  
                   log_id(id, "task", task.id, "rejected:", msg.reason);
+                  reenqueueTask(task);
                   result = false;
                   advance();
                 } else throw ("2 unexpected kind "+msg.kind);
@@ -454,15 +497,20 @@ function JSFarm() {
                   return true;
                 } else if (msg.kind == 'error') {
                   // late rejection
-                  task.state = 'failed';
-                  markNotInFlight(task);
                   log(id, ": task", task.id, "failed:", msg.error, "(3)");
-                  cleanup(false);
-                  // don't bother reentering
+                  if (msg.fatal) {
+                    failTask(task);
+                  } else {
+                    reenqueueTask(task); // recoverable
+                  }
+                  cleanup();
+                  // don't bother reentering this exchange
                   return true;
                 } else if (msg.kind == 'progress') {
-                  var frac = msg.value;
+                  var frac = +msg.value;
+                  task.progress = frac;
                   task.onProgress(frac);
+                  self.progress_ui.onTaskProgressed(task);
                 } else throw ("3 unexpected kind "+msg.kind);
               };
               con.onceSuccessful('data', reactTaskDone);
@@ -481,17 +529,22 @@ function JSFarm() {
                   return true;
                 } else if (msg.kind == 'error') {
                   // very late rejection
-                  task.state = 'failed';
-                  markNotInFlight(task);
                   log(id, ": task", task.id, "failed:", msg.error, "(4)");
-                  cleanup(false);
+                  if (msg.fatal) {
+                    failTask(task);
+                  } else {
+                    reenqueueTask(task); // recoverable
+                  }
+                  cleanup();
                   // don't bother reentering
                   return true;
                 } else if (msg.kind == 'done') {
                   log("Yes, I know that task", task.id, "is done. Why did you tell me twice? (Tolerated. But why??)");
                 } else if (msg.kind == 'progress') {
-                  var frac = msg.value;
+                  var frac = +msg.value;
+                  task.progress = frac;
                   task.onProgress(frac);
+                  self.progress_ui.onTaskProgressed(task);
                 } else throw ("4 unexpected kind "+msg.kind);
               };
               con.onceSuccessful('data', reactTaskResultReceived);
@@ -500,13 +553,37 @@ function JSFarm() {
             };
             
             if (!self.peerinfo.hasOwnProperty(id)) self.peerinfo[id] = {};
+            
+            var peerinfo = self.peerinfo[id];
+            
+            if (!peerinfo.hasOwnProperty('wait_label_completion')) {
+              peerinfo.wait_label_completion = function*(advance) {
+                peerinfo.on_label_completion(advance);
+                yield;
+              };
+              
+              // we're the first - query for label
+              var attached_fns = [];
+              peerinfo.on_label_completion = function(fn) { attached_fns.push(fn); };
+              
+              peerinfo.label = yield* get_label();
+              
+              for (var i = 0; i < attached_fns.length; ++i) attached_fns[i](); // wake up the others who are waiting on us
+              
+              peerinfo.wait_label_completion = function*(advance) { }; // pass clean through now
+            }
+            
+            yield* peerinfo.wait_label_completion(advance);
+            
+            self.progress_ui.onOpenConnection(id, peerinfo.label);
+            
             if (!self.peerinfo[id].hasOwnProperty('ping')) {
-              log_id(id, "measure ping");
+              // prevent other channels from starting duplicate checks
               self.peerinfo[id].ping = null;
               var tries = 3;
               var sum = 0;
               for (var i = 0; i < tries; ++i) {
-                sum += yield* time();
+                sum += yield* time_response();
               }
               var ping = sum / tries;
               log_id(id, "ping", "is "+(ping|0)+"ms");
@@ -515,7 +592,7 @@ function JSFarm() {
             
             var task = self.getQueuedTask();
             if (!task) {
-              cleanup(true);
+              cleanup();
               return;
             }
             
@@ -530,7 +607,7 @@ function JSFarm() {
               // start a new exchange
               startExchange();
             } else {
-              cleanup(true);
+              cleanup();
               return;
             }
             
@@ -556,7 +633,7 @@ function JSFarm() {
             
             finishTask(task, resultInfo);
             
-            cleanup(false);
+            cleanup();
             return;
           };
           
@@ -621,11 +698,25 @@ function JSFarm() {
       this.tasks[i] = temp;
     }
   };
-  this.run = function() { this.giveWorkToIdlePeers(); };
+  this.reset = function() {
+    this.tasks.length = 0;
+    this.peerlist.length = 0;
+    this.peerlist_last_updated = null;
+    for (var key in this.connections) if (this.connections.hasOwnProperty(key)) {
+      this.connections[key].close();
+      delete this.connections[key];
+    }
+  };
+  this.run = function() {
+    this.progress_ui.reset();
+    this.giveWorkToIdlePeers();
+  };
   this.taskcount = 0;
   this.addTask = function(msg) {
     var task = {
       state: 'queued',
+      assigned_to: null,
+      progress: 0,
       id: this.taskcount++,
       message: msg,
       onStart: function() { },
@@ -674,7 +765,7 @@ function JSFarm() {
       worker: worker,
       worker_timeout_timer: null,
       onTimeout: function() {
-        // cleanup
+        // clean up
         this.worker.terminate();
         if (this.hasOwnProperty('onError')) {
           this.onError("Timeout: computation exceeded 30s");
@@ -720,8 +811,9 @@ function JSFarm() {
           workerWrapper.onError(msg.error);
         }
       } else if (msg.kind == "progress") {
-        workerWrapper.onProgress(msg.progress);
-        // if (update) update((msg.progress * 100 + 0.5)|0);
+        if (workerWrapper.hasOwnProperty('onProgress')) {
+          workerWrapper.onProgress(msg.progress);
+        }
       } else if (msg.kind == "alert") {
         if (!busy) { // otherwise just drop it, it's not that important, we get lots
           busy = true; // THREAD SAFETY L O L
@@ -748,6 +840,7 @@ function JSFarm() {
     $('#WorkerInfo .workerlist').empty();
     
     this.peer.destroy();
+    this.id = null;
     
     $('#DisconnectButton').hide();
     $('#ConnectButton').show();

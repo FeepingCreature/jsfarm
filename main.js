@@ -42,6 +42,21 @@ function log() {
   logJq(div);
 }
 
+function LoadSettings() {
+  var obj = Cookies.getJSON('settings');
+  if (!obj) return;
+  if (obj.hasOwnProperty('threads')) document.getElementById('threads').value = obj.threads|0;
+  if (obj.hasOwnProperty('ident')) document.getElementById('ident').value = obj.ident;
+}
+
+function SaveSettings() {
+  var obj = {
+    threads: document.getElementById('threads').value|0,
+    ident: document.getElementById('ident').value
+  };
+  Cookies.set('settings', obj);
+}
+
 var StorageHandlers = {
   "gist.github.com": {
     save: function(src) {
@@ -261,18 +276,14 @@ function renderScene() {
   }
   */
   
-  var id = unique_id();
-  logHtml('Running tasks: <div id="'+id+'" style="display: inline-block;"></div>');
-  
-  var tasks = $('#'+id);
+  logHtml('Processing.');
   
   var jsfarm = window.jsfarm;
   if (!jsfarm) return;
   
+  jsfarm.reset();
+  
   var addTaskFor = function(x_from, y_from) {
-    var taskmarker = $('<div style="width: 8px; height: 8px; margin: -1px 0 0 -1px; background-color: #ff7777; border: 1px solid gray; display: inline-block; "></div>');
-    tasks.append(taskmarker);
-    
     var dw = canvas.width, dh = canvas.height;
     var task = {
       source: fullsrc,
@@ -292,13 +303,8 @@ function renderScene() {
           bdata[i] = wdata[i];
         }
         ctx.putImageData(brush, x_from, y_from);
-        taskmarker.css('background-color', '#77ff77');
       }).
       onProgress(function(frac) {
-        var blend = function(from, to, frac) {
-          return from + Math.floor((to - from) * frac);
-        };
-        taskmarker.css('background-color', 'rgb('+blend(255, 128, frac)+', '+blend(128, 255, frac)+', 128)');
       });
   };
   
@@ -310,6 +316,8 @@ function renderScene() {
       addTaskFor(x, y);
     }
   }
+  
+  $('#progress').empty().append(jsfarm.progress_ui.dom);
   
   jsfarm.shuffle();
   
