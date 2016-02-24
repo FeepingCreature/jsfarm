@@ -220,6 +220,7 @@ function renderScene() {
   var ctx = canvas.getContext('2d');
   
   var bsize = document.getElementById('bsize').value|0;
+  var quality = document.getElementById('quality').value|0;
   
   if (canvas.width % bsize != 0 || canvas.height % bsize != 0) {
     alert("Size of canvas must be a multiple of blocksize!");
@@ -276,8 +277,9 @@ function renderScene() {
     var task = {
       source: fullsrc,
       dw: dw, dh: dh,
+      quality: quality,
       x_from: x_from, x_to: x_from + bsize,
-      y_from, y_from, y_to: y_from + bsize
+      y_from: y_from, y_to: y_from + bsize
     };
     jsfarm.addTask(task).
       onStart(function() {

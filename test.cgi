@@ -78,15 +78,9 @@ cat <<EOT
 EOT
 cat <<'EOT'
           <label for="threads" title="Number of background threads. Default: 2">Threads</label>
-          <input type="text" size="1" id="threads" name="threads" value="2">
-          <label for="ident" title="Identifier for your computer in statistics. Default: connection id.">Name</label>
-          <input type="text" size="10" id="ident" name="ident" value="">
-          <label for="width" title="Width of the rendered image. Please be considerate.">Width</label>
-          <input type="text" size="4" id="width" name="width" value="512">
-          <label for="height" title="Height of the rendered image. Please be considerate.">Height</label>
-          <input type="text" size="4" id="height" name="height" value="512">
-          <label for="bsize" title="Edge size of a task-block, the basic unit of rendering.">Blocksize</label>
-          <input type="text" size="2" id="bsize" name="bsize" value="8">
+          <input type="text" size="1" id="threads" name="threads" value="2" oninput="SaveSettings()">
+          <label for="ident" title="Label used for this computer. Defaults to connection id.">Label</label>
+          <input type="text" size="10" id="ident" name="ident" value="" oninput="SaveSettings()">
         </div>
       </div>
     </div>
@@ -240,9 +234,6 @@ cat <<'EOT'
     return src;
   };
   
-  editor.files = splitSrc(original_src);
-  editor.rebuildFileUi(editor.files);
-  
   window.getFiles = function() {
     var src = window.getFullSrc();
     // rebuild/reassign line numbers and contents
@@ -341,16 +332,35 @@ cat <<'EOT'
     cm_editor.scrollTo(null, (coords.top + coords.bottom - h) / 2);
   };
 </script>
+
 <hr>
+
 <button type="button" id="RunButton" onclick="renderScene()">Run</button>
 <script>
   $(function() {
     LoadStateFromAnchor(function() {
+      if (!editor.files.length) {
+        // build default
+        editor.files = splitSrc($('#editor')[0].value);
+        editor.rebuildFileUi(editor.files);
+      }
       $("#RunButton").click();
     });
   });
 </script>
 <button type="button" id="SaveButton" onclick="Save()">Save</button>
+
+&nbsp;|&nbsp;
+
+<label for="width" title="Width of the rendered image. Please be considerate.">Width</label>
+<input type="text" size="3" id="width" name="width" value="512">
+<label for="height" title="Height of the rendered image. Please be considerate.">Height</label>
+<input type="text" size="3" id="height" name="height" value="512">
+<label for="bsize" title="Edge size of a task-block, the basic unit of rendering.">Blocksize</label>
+<input type="text" size="1" id="bsize" name="bsize" value="32">
+<label for="quality" title="Passed to the script as param-quality.">Quality</label>
+<input type="text" size="4" id="quality" name="quality" value="32">
+
 <hr>
 <p>Console</p>
 <div style="clear:both;"></div>

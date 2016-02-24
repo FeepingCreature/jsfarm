@@ -21,6 +21,7 @@ onmessage = function(e) {
     var x_from = e.data.x_from, x_to = e.data.x_to;
     var y_from = e.data.y_from, y_to = e.data.y_to;
     var dw = e.data.dw, dh = e.data.dh;
+    var quality = e.data.quality;
     var s2src = e.data.source;
     
     if (dw > 4000 || dh > 4000 || dw < 0 || dh < 0) throw "size limits exceeded";
@@ -30,7 +31,7 @@ onmessage = function(e) {
     var width = x_to - x_from, height = y_to - y_from;
     if (width < 0 || height < 0) throw "render range negative";
     
-    var settings = {width: width, height: height};
+    var settings = {width: width, height: height, dw: dw, dh: dh, quality: quality};
     
     if (JSON.stringify(settings) != JSON.stringify(fncache.settings) || s2src != fncache.source) {
       var files = splitSrc(s2src);
@@ -81,6 +82,7 @@ onmessage = function(e) {
       var compiled = asmjs(stdlib, {
         dw: dw,
         dh: dh,
+        quality: quality,
         hit: hit,
         error: function(code) { throw ("asm.js: "+errmsgs[code]); },
         alert_: alert_,

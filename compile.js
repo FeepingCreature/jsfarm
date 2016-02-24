@@ -3445,6 +3445,7 @@ function setupSysctx() {
   sysctx.add("Infinity", {kind: "variable", type: "float", value: "Infinity"});
   sysctx.add("dw", {kind: "variable", type: "float", value: "(dw|0)"});
   sysctx.add("dh", {kind: "variable", type: "float", value: "(dh|0)"});
+  sysctx.add("param-quality", {kind: "variable", type: "float", value: "(quality|0)"});
   sysctx.add("projscale", {kind: "number", value: 1});
   return sysctx;
 }
@@ -3487,6 +3488,7 @@ function compile(files) {
   jsfile.addLine("var hit = foreign.hit;");
   jsfile.addLine("var dw = foreign.dw|0;");
   jsfile.addLine("var dh = foreign.dh|0;");
+  jsfile.addLine("var quality = foreign.quality|0;");
   jsfile.addLine("var _memory_limit = foreign.memory_limit|0;");
   
   jsfile.addLine("var mem_i32 = new Int32Array(heap);");
