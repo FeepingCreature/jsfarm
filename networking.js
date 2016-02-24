@@ -316,10 +316,11 @@ function JSFarm() {
         var con_release = function() {
           if (--con_refs == 0) {
             log("nothing relevant happening on connection - close.");
-            self.progress_ui.onCloseConnection(id);
             con.close();
           }
         };
+        
+        var firstExchangeOnConnection = true;
         
         var tasksInFlight = [];
         var markNotInFlight = function(task) {
@@ -575,7 +576,11 @@ function JSFarm() {
             
             yield* peerinfo.wait_label_completion(advance);
             
-            self.progress_ui.onOpenConnection(id, peerinfo.label);
+            if (firstExchangeOnConnection) {
+              // as soon as we have the label...
+              self.progress_ui.onOpenConnection(id, peerinfo.label);
+              firstExchangeOnConnection = false;
+            }
             
             if (!self.peerinfo[id].hasOwnProperty('ping')) {
               // prevent other channels from starting duplicate checks

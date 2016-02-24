@@ -184,13 +184,6 @@ function ProgressUI(tasks) {
     }
   };
   
-  this.hideTaskList = function(id) {
-    var proginfo = this.contributors[this.label_by_id[id]];
-    var tasks_dom = proginfo.tasks_dom;
-    tasks_dom.css("display", "none");
-    proginfo._set_height = 0;
-  };
-  
   this.rescaleTaskListHeight = function(id) {
     var proginfo = this.contributors[this.label_by_id[id]];
     var tasks_dom = proginfo.tasks_dom;
@@ -206,8 +199,12 @@ function ProgressUI(tasks) {
   
   this.onOpenConnection = function(id, label) {
     this.label_by_id[id] = label;
-    if (!this.contributors.hasOwnProperty(label)) {
-      var proginfo = new ProgressInfo({percent: true, fraction: true, label_inside: true});
+    var proginfo = null;
+    if (this.contributors.hasOwnProperty(label)) {
+      proginfo = this.contributors[label];
+    } else {
+      proginfo = new ProgressInfo({percent: true, fraction: true, label_inside: true});
+      proginfo.refs = 0;
       proginfo.reset(this.tasks.length);
       
       this.contributors[label] = proginfo;
@@ -219,10 +216,17 @@ function ProgressUI(tasks) {
       
       this.dom.append(proginfo.dom_outer);
     }
+    proginfo.refs ++;
   };
   this.onCloseConnection = function(id) {
-    this.hideTaskList(id);
     this.sortContributors();
+    var proginfo = this.contributors[this.label_by_id[id]];
+    proginfo.refs --;
+    if (proginfo.refs == 0) {
+      var tasks_dom = proginfo.tasks_dom;
+      tasks_dom.css("display", "none");
+      proginfo._set_height = 0;
+    }
   };
   this.onTaskAccepted = function(task) {
     task._progress = new ProgressInfo({ thin: true });
