@@ -7,7 +7,7 @@ function alert_(msg) {
 
 function log() {
   var msg = Array.prototype.slice.call(arguments).join(" ");
-  // TODO postMessage
+  postMessage({kind: "log", message: msg});
 }
 
 fncache = {
@@ -31,22 +31,22 @@ onmessage = function(e) {
     var width = x_to - x_from, height = y_to - y_from;
     if (width < 0 || height < 0) throw "render range negative";
     
-    var settings = {width: width, height: height, dw: dw, dh: dh, quality: quality};
+    var settings = {dw: dw, dh: dh, quality: quality};
     
     if (JSON.stringify(settings) != JSON.stringify(fncache.settings) || s2src != fncache.source) {
       var files = splitSrc(s2src);
       var jssrc = compile(files);
       asmjs = new Function('stdlib', 'foreign', 'heap', jssrc);
       
-      var array = new Uint8Array(4 * width * height);
-      
       var config = {};
       
       var hit = function(x, y, success, r, g, b) {
         config.count++;
         
+        var width = config.x_to - config.x_from;
         var t = (new Date()).getTime();
         if (t - config.last_t > 1000) {
+          var height = config.y_to - config.y_from;
           var progress = config.count / (width * height);
           postMessage({kind: "progress", progress: progress});
           config.last_t = t;
@@ -58,6 +58,7 @@ onmessage = function(e) {
           b = 0;
         }
         var base = (y - config.y_from) * width + (x - config.x_from);
+        var array = config.array;
         if (base >= 0 && base < array.length) {
           array[base*4 + 0] = Math.max(0, Math.min(255, r * 255));
           array[base*4 + 1] = Math.max(0, Math.min(255, g * 255));
@@ -95,6 +96,7 @@ onmessage = function(e) {
       fncache.settings = settings;
       fncache.fn = function(x_from, y_from, x_to, y_to) {
         
+        config.array = new Uint8Array(4 * (x_to - x_from) * (y_to - y_from));
         config.x_from = x_from;
         config.y_from = y_from;
         config.x_to = x_to;
@@ -105,7 +107,7 @@ onmessage = function(e) {
         compiled.resetGlobals();
         
         compiled.executeRange(x_from, y_from, x_to, y_to);
-        postMessage({kind: "finish", x_from: x_from, y_from: y_from, x_to: x_to, y_to: y_to, data: array});
+        postMessage({kind: "finish", x_from: x_from, y_from: y_from, x_to: x_to, y_to: y_to, data: config.array});
       };
     }
     

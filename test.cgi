@@ -385,8 +385,6 @@ cat <<'EOT'
 <input type="text" size="3" id="width" name="width" value="512">
 <label for="height" title="Height of the rendered image. Please be considerate.">Height</label>
 <input type="text" size="3" id="height" name="height" value="512">
-<label for="bsize" title="Edge size of a task-block, the basic unit of rendering.">Blocksize</label>
-<input type="text" size="1" id="bsize" name="bsize" value="32">
 <label for="quality" title="Passed to the script as param-quality.">Quality</label>
 <input type="text" size="4" id="quality" name="quality" value="32">
 

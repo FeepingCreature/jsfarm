@@ -234,13 +234,7 @@ function renderScene() {
   
   var ctx = canvas.getContext('2d');
   
-  var bsize = document.getElementById('bsize').value|0;
   var quality = document.getElementById('quality').value|0;
-  
-  if (canvas.width % bsize != 0 || canvas.height % bsize != 0) {
-    alert("Size of canvas must be a multiple of blocksize!");
-    return;
-  }
   
   var sidesbrush = ctx.createImageData(6, canvas.height);
   
@@ -254,16 +248,30 @@ function renderScene() {
     }
   }
   
-  var wipbrush = ctx.createImageData(bsize, bsize);
+  var wipbrush_cache = {};
+  var get_wipbrush = function(width, height) {
+    var key = width+"x"+height;
+    if (!wipbrush_cache.hasOwnProperty(key)) {
+      var wipbrush = ctx.createImageData(width, height);
+      for (var base = 0; base < width * height; ++base) {
+        wipbrush.data[base*4 + 0] = 160;
+        wipbrush.data[base*4 + 1] = 220;
+        wipbrush.data[base*4 + 2] = 255;
+        wipbrush.data[base*4 + 3] = 255;
+      }
+      return wipbrush;
+    }
+    return wipbrush_cache[key];
+  };
   
-  for (var base = 0; base < bsize * bsize; ++base) {
-    wipbrush.data[base*4 + 0] = 160;
-    wipbrush.data[base*4 + 1] = 220;
-    wipbrush.data[base*4 + 2] = 255;
-    wipbrush.data[base*4 + 3] = 255;
-  }
-  
-  var brush = ctx.createImageData(bsize, bsize);
+  var brush_cache = {};
+  var get_brush = function(width, height) {
+    var key = width+"x"+height;
+    if (!brush_cache.hasOwnProperty(key)) {
+      brush_cache[key] = ctx.createImageData(width, height);
+    }
+    return brush_cache[key];
+  };
   
   /*
   var start = window.performance.now();
@@ -283,39 +291,35 @@ function renderScene() {
   
   jsfarm.reset();
   
-  var addTaskFor = function(x_from, y_from) {
-    var dw = canvas.width, dh = canvas.height;
-    var task = {
-      source: fullsrc,
-      dw: dw, dh: dh,
-      quality: quality,
-      x_from: x_from, x_to: x_from + bsize,
-      y_from: y_from, y_to: y_from + bsize
-    };
-    jsfarm.addTask(task).
-      onStart(function() {
-        ctx.putImageData(wipbrush, x_from, y_from);
-      }).
-      onDone(function(msg) {
-        var wdata = msg.data;
-        var bdata = brush.data;
-        for (var i = 0; i < bdata.length; ++i) {
-          bdata[i] = wdata[i];
-        }
-        ctx.putImageData(brush, x_from, y_from);
-      }).
-      onProgress(function(frac) {
-      });
-  };
-  
   ctx.putImageData(sidesbrush, 0, 0);
   ctx.putImageData(sidesbrush, canvas.width - 6, 0);
   
-  for (var y = 0; y < canvas.height; y += bsize) {
-    for (var x = 0; x < canvas.width; x += bsize) {
-      addTaskFor(x, y);
-    }
-  }
+  var dw = canvas.width, dh = canvas.height;
+  
+  var task = {
+    source: fullsrc,
+    dw: dw, dh: dh,
+    quality: quality,
+    x_from: 0, x_to: dw,
+    y_from: 0, y_to: dh
+  };
+  
+  jsfarm.addTask(task).
+    onStart(function(task) {
+      var brush = get_wipbrush(task.x_to - task.x_from, task.y_to - task.y_from);
+      ctx.putImageData(brush, task.x_from, task.y_from);
+    }).
+    onDone(function(task, msg) {
+      var wdata = msg.data;
+      var brush = get_brush(task.x_to - task.x_from, task.y_to - task.y_from);
+      var bdata = brush.data;
+      for (var i = 0; i < bdata.length; ++i) {
+        bdata[i] = wdata[i];
+      }
+      ctx.putImageData(brush, task.x_from, task.y_from);
+    }).
+    onProgress(function(task, frac) {
+    });
   
   $('#progress').empty().append(jsfarm.progress_ui.dom);
   

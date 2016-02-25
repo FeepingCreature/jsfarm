@@ -77,11 +77,13 @@ function RobinQueue(limit) {
     return task;
   };
   this.addTaskMaybe = function(task) {
+    var evict_task = null;
     if (this.tasks.length == this.limit) {
       // maybe we replace a queued task?
       // find the queued task with the worst score
       var worstscore = null, worstscore_id = null;
       for (var i = 0; i < this.tasks.length; ++i) {
+        if (this.tasks[i].origin === task.origin) continue; // no point
         var oldtaskscore = this.getScoreForTask(this.tasks[i]);
         if (!worstscore || oldtaskscore < worstscore) {
           worstscore = oldtaskscore;
@@ -95,13 +97,13 @@ function RobinQueue(limit) {
       }
       
       // we replace worstscore_id
-      var task = this.tasks[worstscore_id];
-      log("kick", JSON.stringify(task.msg));
-      task.evict();
-      
-      this.tasks = this.tasks.splice(worstscore_id, 1);
+      evict_task = this.tasks[worstscore_id];
+      this.tasks.splice(worstscore_id, 1);
     }
     this.tasks.push(task);
+    
+    if (evict_task) evict_task.evict();
+    
     return true;
   };
 }
@@ -235,7 +237,8 @@ function JSFarm() {
       }
       if (msg.kind == 'task') {
         var task = new RobinTask(con, function() {
-          con.send({kind: 'error', fatal: false, reason: 'task evicted from queue', channel: msg.channel});
+          // log("kick", JSON.stringify(msg));
+          con.send({kind: 'error', fatal: false, error: 'task evicted from queue', channel: msg.channel});
         });
         task.msg = msg;
         task.default_obj = default_obj;
@@ -351,15 +354,22 @@ function JSFarm() {
           markNotInFlight(task);
         };
         
-        var finishTask = function(task, resultInfo) {
+        var finishTask = function(task, timer, resultInfo) {
+          var msg = task.message;
           task.state = 'done';
-          task.onDone(resultInfo);
+          task.onDone(msg, resultInfo);
           self.progress_ui.onTaskCompleted(task);
+          self.cost_estimate_seconds += timer.elapsed() / 1000;
+          self.cost_estimate_pixels += (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from);
+          // log("done: "+timer.elapsed()+" for "+(msg.x_to - msg.x_from) * (msg.y_to - msg.y_from));
           markNotInFlight(task);
         };
         
+        var con_start_exchange_timer = null;
+        
         var finish = function(reason) {
           return function() {
+            con_start_exchange_timer.kill();
             // log_id(id, "finish:", reason, ",", JSON.stringify(Array.prototype.slice.call(arguments)));
             for (var i = 0; i < tasksInFlight.length; ++i) {
               var task = tasksInFlight[i];
@@ -377,7 +387,7 @@ function JSFarm() {
         con.on('open', function() {
           var exchanges = [];
           var channel_counter = 0;
-          
+        
           var startExchange = function() {
             var channel = channel_counter ++;
             // log_id(id, "start new exchange on channel", channel);
@@ -405,7 +415,10 @@ function JSFarm() {
           var exchange = function*(channel) {
             var advance = function() {
               if (exchanges[channel] == null) return; // died
+              
               exchanges[channel].timer.reset(); // something happened! reset the timeout
+              con_start_exchange_timer.reset(); // this one too
+              
               exchanges[channel].next();
             };
             
@@ -453,7 +466,7 @@ function JSFarm() {
                 if (msg.channel != channel) return;
                 
                 if (msg.kind == 'accepted') {
-                  // log(id, ": Task on", msg.channel, "has been accepted.");
+                  // log_id(id, "task on", msg.channel, "has been accepted.");
                   task.state = 'processing';
                   task.assigned_to = id;
                   self.progress_ui.onTaskAccepted(task);
@@ -497,11 +510,12 @@ function JSFarm() {
                   return true;
                 } else if (msg.kind == 'error') {
                   // late rejection
-                  log(id, ": task", task.id, "failed:", msg.error, "(3)");
                   if (msg.fatal) {
+                    log(id, ": task", task.id, "failed:", msg.fatal, msg.error, "(3)");
                     failTask(task);
                   } else {
-                    reenqueueTask(task); // recoverable
+                    // log(id, ": task", task.id, "kicked from queue, was", task.state);
+                    reenqueueTask(task); // recoverable, like queue kicks
                   }
                   cleanup();
                   // don't bother reentering this exchange
@@ -509,7 +523,7 @@ function JSFarm() {
                 } else if (msg.kind == 'progress') {
                   var frac = +msg.value;
                   task.progress = frac;
-                  task.onProgress(frac);
+                  task.onProgress(task.message, frac);
                   self.progress_ui.onTaskProgressed(task);
                 } else throw ("3 unexpected kind "+msg.kind);
               };
@@ -543,7 +557,7 @@ function JSFarm() {
                 } else if (msg.kind == 'progress') {
                   var frac = +msg.value;
                   task.progress = frac;
-                  task.onProgress(frac);
+                  task.onProgress(task.message, frac);
                   self.progress_ui.onTaskProgressed(task);
                 } else throw ("4 unexpected kind "+msg.kind);
               };
@@ -606,7 +620,7 @@ function JSFarm() {
             // log_id(id, "task", task.id, "submitting");
             
             if (yield* taskAccepted(task)) {
-              task.onStart();
+              task.onStart(task.message);
               // maybe this peer has more threads free?
               // start a new exchange
               startExchange();
@@ -635,11 +649,18 @@ function JSFarm() {
               data: data
             };
             
-            finishTask(task, resultInfo);
+            finishTask(task, exchanges[channel].timer, resultInfo);
             
             cleanup();
             return;
           };
+          
+          // in the absence of other occasions, start a fresh exchange at least once a second
+          // this prevents us from getting stuck if we get rejected on all fronts, for instance
+          con_start_exchange_timer = new TimeoutTimer(1000, function() {
+            con_start_exchange_timer.reset().run();
+            startExchange();
+          });
           
           startExchange();
         });
@@ -693,9 +714,11 @@ function JSFarm() {
       recheckPeersPeriodically();
     });
   };
-  this.shuffle = function() {
-    for (var i = 0; i < this.tasks.length; ++i) {
-      var target = i + Math.floor(Math.random() * (this.tasks.length - i));
+  this.shuffle = function(top_num) {
+    top_num = top_num || this.tasks.length;
+    var limit = this.tasks.length - top_num;
+    for (var i = this.tasks.length - 1; i >= limit; --i) {
+      var target = Math.floor(Math.random() * (i + 1));
       
       var temp = this.tasks[target];
       this.tasks[target] = this.tasks[i];
@@ -710,6 +733,8 @@ function JSFarm() {
       this.connections[key].close();
       delete this.connections[key];
     }
+    this.cost_estimate_seconds = 1;
+    this.cost_estimate_pixels = 0; // initially "Infinity" so we start with 1x1 subdiv
   };
   this.run = function() {
     this.progress_ui.reset();
@@ -723,9 +748,9 @@ function JSFarm() {
       progress: 0,
       id: this.taskcount++,
       message: msg,
-      onStart: function() { },
-      onDone: function() { },
-      onProgress: function(frac) { }
+      onStart: function(task) { },
+      onDone: function(task, msg) { },
+      onProgress: function(task, frac) { }
     };
     this.tasks.push(task);
     return {
@@ -744,9 +769,54 @@ function JSFarm() {
     }
     return null;
   };
+  this.cost_estimate_seconds = 1;
+  this.cost_estimate_pixels = 0;
+  this.estimSubdivideTask = function(task) {
+    var msg = task.message;
+    var task_pixels = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from);
+    var estim_seconds_per_pixel = this.cost_estimate_seconds / this.cost_estimate_pixels;
+    var estim_seconds_per_task = task_pixels * estim_seconds_per_pixel;
+    var target_seconds_per_task = 5;
+    if (estim_seconds_per_task <= target_seconds_per_task || task_pixels == 1) return false;
+    // log("subdivide task: targeting", target_seconds_per_task, ", estimated", estim_seconds_per_task, "for", task_pixels);
+    // subdivide into four quadrants
+    var tl = task, tr = $.extend(true, {}, task),
+      bl = $.extend(true, {}, task), br = $.extend(true, {}, task);
+    
+    var xsplit = msg.x_from + Math.ceil((msg.x_to - msg.x_from) / 2);
+    var ysplit = msg.y_from + Math.ceil((msg.y_to - msg.y_from) / 2);
+    
+    var x_didsplit = xsplit < msg.x_to;
+    var y_didsplit = ysplit < msg.y_to;
+    
+    tl.message.x_to   = xsplit; tl.message.y_to   = ysplit;
+    tr.message.x_from = xsplit; tr.message.y_to   = ysplit;
+    bl.message.x_to   = xsplit; bl.message.y_from = ysplit;
+    br.message.x_from = xsplit; br.message.y_from = ysplit;
+    
+    var pushed = 0;
+    if (x_didsplit) {
+      tr.id = this.tasks.length;
+      this.tasks.push(tr);
+      pushed ++;
+    }
+    if (y_didsplit) {
+      bl.id = this.tasks.length;
+      this.tasks.push(bl);
+      pushed ++;
+      if (x_didsplit) {
+        br.id = this.tasks.length;
+        this.tasks.push(br);
+        pushed ++;
+      }
+    }
+    this.shuffle(pushed);
+    return true;
+  };
   this.getQueuedTask = function() {
     var task = this.peekQueuedTask();
     if (task) {
+      while (this.estimSubdivideTask(task)) { }
       task.state = 'processing';
     }
     return task;
@@ -824,6 +894,8 @@ function JSFarm() {
           alert(msg.message); // TODO only if self-connection
           busy = false;
         }
+      } else if (msg.kind == "log") {
+        log(msg.message); // TODO only if self-connection
       } else throw ("what is "+msg.kind);
     });
     
