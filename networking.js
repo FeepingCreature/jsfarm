@@ -68,7 +68,8 @@ function RobinQueue(limit) {
     if (!this.scores.hasOwnProperty(task.origin)) {
       this.scores[task.origin] = 0;
     }
-    this.scores[task.origin] --; // penalize
+    var msg = task.msg.message, cost = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from) * msg.quality;
+    this.scores[task.origin] -= cost; // penalize
   }
   this.popTask = function() {
     if (!this.tasks.length) return null;
@@ -99,6 +100,8 @@ function RobinQueue(limit) {
       // we replace worstscore_id
       evict_task = this.tasks[worstscore_id];
       this.tasks.splice(worstscore_id, 1);
+      
+      // log("evict", JSON.stringify(evict_task.msg), "because", ntaskscore, "beats", worstscore);
     }
     this.tasks.push(task);
     
