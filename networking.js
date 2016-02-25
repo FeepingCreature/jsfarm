@@ -317,15 +317,6 @@ function JSFarm() {
         // log_id(id, "attempt to connect");
         var con = peer.connect(id);
         
-        var con_refs = 0;
-        var con_claim = function() { con_refs ++; };
-        var con_release = function() {
-          if (--con_refs == 0) {
-            log("nothing relevant happening on connection - close.");
-            con.close();
-          }
-        };
-        
         var firstExchangeOnConnection = true;
         
         var tasksInFlight = [];
@@ -406,7 +397,6 @@ function JSFarm() {
                 // the peer has demonstrated that it cannot render this task in a timely manner
                 // leave it to another peer - hope that one shows up.
               }
-              con_release();
               exchanges[channel] = null;
             });
             
@@ -425,9 +415,7 @@ function JSFarm() {
               exchanges[channel].next();
             };
             
-            con_claim();
             function cleanup() {
-              con_release();
               exchanges[channel].timer.kill();
               exchanges[channel] = null;
             }
@@ -662,7 +650,11 @@ function JSFarm() {
           // this prevents us from getting stuck if we get rejected on all fronts, for instance
           con_start_exchange_timer = new TimeoutTimer(1000, function() {
             con_start_exchange_timer.reset().run();
-            startExchange();
+            if (self.gotUnfinishedTasks()) {
+              startExchange();
+            } else {
+              con.close(); // work is done, shut down.
+            }
           });
           
           startExchange();
