@@ -38,7 +38,9 @@ var _progressBar = $('\
     </div>\
   </div>\
   <div class="label label-outside eta"></div>\
-</div>');
+</div>')[0];
+
+var _progressBarCache = {};
 
 /** @constructor */
 function ProgressInfo(settings) {
@@ -55,33 +57,40 @@ function ProgressInfo(settings) {
   this.start = 0;
   this.max = 0;
   
-  this.dom = $(_progressBar[0].cloneNode(true));
-  
-  if (settings.thin) {
-    this.dom.find('.progress').css('height', '5px');
+  var settings_str = JSON.stringify(settings);
+  if (_progressBarCache.hasOwnProperty(settings_str)) {
+    this.dom = $(_progressBarCache[settings_str].cloneNode(true));
   } else {
-    this.dom.find('.progress-bar').addClass('progress-bar-striped');
-  }
-  
-  if (settings.label_inside) {
-    this.dom.find('.progress').css('min-width', '8em');
-  } else {
-    this.dom.find('.progress').css('min-width', '5px');
-    this.dom.find('.annot-inside').remove();
-  }
-  
-  if (!settings.label_after) {
-    this.dom.find('.annot-after').remove();
-    this.dom.find('.annot-spacer').remove();
+    this.dom = $(_progressBar.cloneNode(true));
+    
+    if (settings.thin) {
+      this.dom.find('.progress').css('height', '5px');
+    } else {
+      this.dom.find('.progress-bar').addClass('progress-bar-striped');
+    }
+    
+    if (settings.label_inside) {
+      this.dom.find('.progress').css('min-width', '8em');
+    } else {
+      this.dom.find('.progress').css('min-width', '5px');
+      this.dom.find('.annot-inside').remove();
+    }
+    
+    if (!settings.label_after) {
+      this.dom.find('.annot-after').remove();
+      this.dom.find('.annot-spacer').remove();
+    }
+    
+    _progressBarCache[settings_str] = this.dom[0];
   }
   
   this.dom_cache = {
-    'progress-bar': this.dom.find('.progress-bar'),
-    'progress'    : this.dom.find('.progress'),
-    'sr-only'     : this.dom.find('.sr-only'),
-    'annot'       : this.dom.find('.annot'),
-    'annot-after' : this.dom.find('.annot-after'),
-    'eta'         : this.dom.find('.eta')
+    'progress-bar': this.dom[0].getElementsByClassName('progress-bar')[0],
+    'progress'    : this.dom[0].getElementsByClassName('progress')[0],
+    'sr-only'     : this.dom[0].getElementsByClassName('sr-only')[0],
+    'annot'       : this.dom[0].getElementsByClassName('annot'),
+    'annot-after' : this.dom[0].getElementsByClassName('annot-after'),
+    'eta'         : this.dom[0].getElementsByClassName('eta')[0]
   };
   
   this.reset = function(total) {
@@ -119,18 +128,27 @@ function ProgressInfo(settings) {
       newlabel = this.value+" / "+this.max;
     }
     
+    var text = function(node, content) {
+      while (node.firstChild) {
+        node.removeChild(node.firstChild);
+      }
+      node.appendChild(document.createTextNode(content));
+    };
+    
     var dom_cache = this.dom_cache;
-    dom_cache['progress-bar'].attr('aria-valuenow', prog_percent);
-    dom_cache['progress'][0].style.width = prog_percent+"%";
-    dom_cache['sr-only'].text(newlabel);
-    dom_cache['annot'].text(newlabel);
+    dom_cache['progress-bar'].setAttribute('aria-valuenow', prog_percent);
+    dom_cache['progress'].style.width = prog_percent+"%";
+    text(dom_cache['sr-only'], newlabel);
+    for (var i = 0; i < dom_cache['annot'].length; ++i) {
+      text(dom_cache['annot'][i], newlabel);
+    }
     if (dom_cache['annot-after'].length) {
       dom_cache['annot-after'][0].style.left = prog_percent+"%";
     }
     
     if (this.settings.eta) {
       var stats = this.getEstimate();
-      dom_cache['eta'].text("elapsed "+formatTime(stats.elapsed)+", remaining "+formatTime(stats.remaining));
+      text(dom_cache['eta'], "elapsed "+formatTime(stats.elapsed)+", remaining "+formatTime(stats.remaining));
     }
   };
   this.update(0);
@@ -187,12 +205,12 @@ function ProgressUI(tasks) {
   this.rescaleTaskListHeight = function(id) {
     var proginfo = this.contributors[this.label_by_id[id]];
     var tasks_dom = proginfo.tasks_dom;
-    var numRows = tasks_dom.children().length;
+    var numRows = tasks_dom[0].childNodes.length;
     var setHeight = proginfo._set_height || 0;
     var newHeight = numRows * 5;
     if (newHeight > setHeight) {
-      tasks_dom.css("display", "inherit");
-      tasks_dom.height(newHeight);
+      tasks_dom[0].style.display = "inherit";
+      tasks_dom[0].style.height = newHeight+"px";
       proginfo._set_height = newHeight;
     }
   };
@@ -230,16 +248,17 @@ function ProgressUI(tasks) {
   };
   this.onTaskAccepted = function(task) {
     task._progress = new ProgressInfo({ thin: true });
-    task._progress.reset(100);
+    task._progress.reset(512);
     var tasks_dom = this.contributors[this.label_by_id[task.assigned_to]].tasks_dom;
-    tasks_dom.append(task._progress.dom);
+    tasks_dom[0].appendChild(task._progress.dom[0]);
     this.rescaleTaskListHeight(task.assigned_to);
   };
   this.onTaskProgressed = function(task) {
-    task._progress.update(Math.floor(task.progress * 100));
+    task._progress.update(Math.floor(task.progress * 512));
   };
   this.onTaskCompleted = function(task) {
-    task._progress.dom.remove();
+    var node = task._progress.dom[0];
+    node.parentNode.removeChild(node);
     this.rescaleTaskListHeight(task.assigned_to);
     delete task._progress;
     
@@ -247,7 +266,8 @@ function ProgressUI(tasks) {
     this.contributors[this.label_by_id[task.assigned_to]].increment();
   };
   this.onTaskAborted = function(task) {
-    task._progress.dom.remove();
+    var node = task._progress.dom[0];
+    node.parentNode.removeChild(node);
     this.rescaleTaskListHeight(task.assigned_to);
     delete task._progress;
   };

@@ -5,22 +5,22 @@ function setStatus(msg) {
 function log_id(id) {
   var msg = Array.prototype.slice.call(arguments).slice(1).join(" ");
   var div_id = "div_for_"+id;
-  var existing = $(document.getElementById(div_id));
-  var target = null;
-  if (existing.length > 0) {
-    target = existing.last();
-    target.find('div').empty();
+  var target = document.getElementById(div_id);
+  if (target) {
+    while (target.firstChild) {
+      target.removeChild(target.firstChild);
+    }
   } else {
     var div = $('<div></div>');
     var msgdiv = $('<div></div>');
     div.append(document.createTextNode("> "+id+": "));
     div.append(msgdiv);
     msgdiv.css("border", "1px solid gray").css("display", "inline-block");
-    div.attr("id", div_id);
+    msgdiv.attr("id", div_id);
     logJq(div);
-    target = div;
+    target = msgdiv[0];
   }
-  target.find('div').append(document.createTextNode(msg));
+  target.appendChild(document.createTextNode(msg));
 }
 
 function decodeAddress(address) {
@@ -308,7 +308,7 @@ function JSFarm() {
       var maybeSpawnNewConnections = null;
       
       connect = function(id) {
-        log_id(id, "attempt to connect");
+        // log_id(id, "attempt to connect");
         var con = peer.connect(id);
         
         var con_refs = 0;
@@ -360,12 +360,12 @@ function JSFarm() {
         
         var finish = function(reason) {
           return function() {
-            log_id(id, "finish:", reason, ",", JSON.stringify(Array.prototype.slice.call(arguments)));
+            // log_id(id, "finish:", reason, ",", JSON.stringify(Array.prototype.slice.call(arguments)));
             for (var i = 0; i < tasksInFlight.length; ++i) {
               var task = tasksInFlight[i];
               if (!task) continue;
               reenqueueTask(task);
-              log_id(id, "task", task.id, "reset due to connection loss");
+              // log_id(id, "task", task.id, "reset due to connection loss");
             }
             log("remove connection "+id+" because "+reason);
             self.progress_ui.onCloseConnection(id);
@@ -380,15 +380,14 @@ function JSFarm() {
           
           var startExchange = function() {
             var channel = channel_counter ++;
-            log_id(id, "start new exchange on channel", channel);
+            // log_id(id, "start new exchange on channel", channel);
             exchanges[channel] = exchange(channel);
             exchanges[channel].timer = new TimeoutTimer(50000, function() {
-              log_id(id, "task timed out");
-              var timer = exchanges[channel].timer;
-              if (timer.hasOwnProperty('task')) {
-                // back to queue!
-                log(id, ": timeout on", channel, "reenqueue", self.task.id);
-                reenqueueTask(timer.task);
+              // log_id(id, "exchange timed out");
+              if (exchanges[channel].hasOwnProperty('task')) {
+                var task = exchanges[channel].task;
+                log(id, ": timeout on", channel, "reenqueue", task.id);
+                reenqueueTask(task);
                 // controversial:
                 // don't start a new exchange here
                 // the peer has demonstrated that it cannot render this task in a timely manner
@@ -461,7 +460,7 @@ function JSFarm() {
                   result = true;
                   advance();
                 } else if (msg.kind == 'rejected') {
-                  log_id(id, "task", task.id, "rejected:", msg.reason);
+                  // log_id(id, "task", task.id, "rejected:", msg.reason);
                   reenqueueTask(task);
                   result = false;
                   advance();
@@ -525,7 +524,7 @@ function JSFarm() {
                 
                 if (msg.kind == 'result') {
                   data = new Uint8Array(msg.data);
-                  log_id(id, "task", task.id, "received data", data.length);
+                  // log_id(id, "task", task.id, "received data", data.length);
                   advance();
                   return true;
                 } else if (msg.kind == 'error') {
@@ -591,7 +590,7 @@ function JSFarm() {
                 sum += yield* time_response();
               }
               var ping = sum / tries;
-              log_id(id, "ping", "is "+(ping|0)+"ms");
+              // log_id(id, "ping", "is "+(ping|0)+"ms");
               self.peerinfo[id].ping = ping;
             }
             
@@ -601,10 +600,10 @@ function JSFarm() {
               return;
             }
             
-            exchanges[channel].timer.task = task;
+            exchanges[channel].task = task;
             
             // log("submit task", id, ":", task.id, ":", task.message.y_from);
-            log_id(id, "task", task.id, "submitting");
+            // log_id(id, "task", task.id, "submitting");
             
             if (yield* taskAccepted(task)) {
               task.onStart();
@@ -616,7 +615,7 @@ function JSFarm() {
               return;
             }
             
-            log_id(id, "task", task.id, "was accepted");
+            // log_id(id, "task", task.id, "was accepted");
             
             yield* waitTaskDone();
             
