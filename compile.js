@@ -3151,6 +3151,20 @@ function setupSysctx() {
     if (value.kind == "number") return {kind: "number", value: Math.abs(value.value)};
     thing.fail("unimplemented: abs "+JSON.stringify(value));
   });
+  defun(sysctx, "pow", 2, function(context, thing, value, exp) {
+    if (value.kind == "number" && exp.kind == "number") {
+      return {kind: "number", value: Math.pow(value.value, exp.value)};
+    }
+    
+    if (value.kind == "number") value = {kind: "variable", type: "float", value: value.value};
+    if (  exp.kind == "number")   exp = {kind: "variable", type: "float", value:   exp.value};
+    
+    if (value.kind == "variable" && value.type == "float"
+       && exp.kind == "variable" &&   exp.type == "float") {
+      return context.js.mkVar("pow("+js_tag(value)+", "+js_tag(exp)+")", "float", "pow");
+    }
+    thing.fail("unimplemented: pow "+JSON.stringify(value)+", "+JSON.stringify(exp));
+  });
   defun(sysctx, "sin", 1, function(context, thing, value) {
     if (value.kind == "variable" && value.type == "float") {
       return context.js.mkVar("sin("+js_tag(value)+")", "float", "sin");
@@ -3470,6 +3484,7 @@ function compile(files) {
   
   jsfile.addLine("var sqrt = stdlib.Math.sqrt;");
   jsfile.addLine("var abs = stdlib.Math.abs;");
+  jsfile.addLine("var pow = stdlib.Math.pow;");
   jsfile.addLine("var sin = stdlib.Math.sin;");
   jsfile.addLine("var cos = stdlib.Math.cos;");
   jsfile.addLine("var tan = stdlib.Math.tan;");
