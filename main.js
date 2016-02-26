@@ -242,11 +242,12 @@ function renderScene() {
   if (canvas.width != nwidth || canvas.height != nheight) {
     canvas.width = nwidth;
     canvas.height = nheight;
-    if (nwidth >= nheight) {
-      $(canvas).css('width', 512).css('height', canvas.height * 512 / canvas.width);
-    } else {
-      $(canvas).css('height', 512).css('width', canvas.width * 512 / canvas.height);
-    }
+  }
+  
+  if (nwidth >= nheight) {
+    $(canvas).css('width', 512).css('height', canvas.height * 512 / canvas.width);
+  } else {
+    $(canvas).css('height', 512).css('width', canvas.width * 512 / canvas.height);
   }
   
   var ctx = canvas.getContext('2d');
