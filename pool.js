@@ -53,6 +53,7 @@ onmessage = function(e) {
       var files = splitSrc(s2src);
       var jssrc = compile(files);
       asmjs = new Function('stdlib', 'foreign', 'heap', jssrc);
+      files = null; jssrc = null;
       
       var config = {};
       

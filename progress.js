@@ -3,12 +3,13 @@ function formatTime(d) {
   
   if (seconds == 0) return "0s";
   
-  var parts = [];
+  var res = "";
   
   var checkUnit = function(letter, size) {
     if (seconds >= size) {
       var wholes = Math.floor(seconds / size);
-      parts.push(wholes+letter);
+      if (res.length) res += " ";
+      res += wholes+letter;
       seconds -= wholes * size;
     }
   };
@@ -20,7 +21,14 @@ function formatTime(d) {
   checkUnit("m", 60);
   checkUnit("s", 1);
   
-  return parts.join(" ");
+  return res;
+}
+
+function text(node, content) {
+  while (node.firstChild) {
+    node.removeChild(node.firstChild);
+  }
+  node.appendChild(document.createTextNode(content));
 }
 
 var _progressBar = $('\
@@ -131,13 +139,6 @@ function ProgressInfo(settings) {
       newlabel = this.value+" / "+this.max;
     }
     
-    var text = function(node, content) {
-      while (node.firstChild) {
-        node.removeChild(node.firstChild);
-      }
-      node.appendChild(document.createTextNode(content));
-    };
-    
     var dom_cache = this.dom_cache;
     dom_cache['progress-bar'].setAttribute('aria-valuenow', prog_percent);
     dom_cache['progress'].style.width = prog_percent+"%";
@@ -173,6 +174,9 @@ function ProgressUI(tasks) {
   dom.find('#main_progress').replaceWith(this.main_progress.dom);
   
   this.dom = dom;
+  this.cache = {
+    '#QuickProgInfo': $('#QuickProgInfo')[0]
+  };
   
   this.reset = function() {
     if (this.tasks.length != 1) throw "internal error";
@@ -180,7 +184,7 @@ function ProgressUI(tasks) {
     
     this.main_progress.reset((msg.x_to - msg.x_from) * (msg.y_to - msg.y_from));
     
-    $('#QuickProgInfo').text("");
+    text(this.cache['#QuickProgInfo'], "");
     
     for (var key in this.contributors) if (this.contributors.hasOwnProperty(key)) {
       this.contributors[key].dom_outer.detach();
@@ -240,7 +244,7 @@ function ProgressUI(tasks) {
         append($('<dt></dt>').text(label)).
         append($('<dd></dd>').append(proginfo.dom).append(proginfo.tasks_dom));
       
-      this.dom.prepend(proginfo.dom_outer);
+      this.dom.children().eq(1).after(proginfo.dom_outer);
     }
     proginfo.refs ++;
   };
@@ -257,6 +261,9 @@ function ProgressUI(tasks) {
   this.onTaskAccepted = function(task) {
     task._progress = new ProgressInfo({ thin: true });
     task._progress.reset(512);
+    if (!this.contributors.hasOwnProperty(this.label_by_id[task.assigned_to])) {
+      throw ("unknown contributor for "+task.assigned_to+": "+this.label_by_id[task.assigned_to]);
+    }
     var tasks_dom = this.contributors[this.label_by_id[task.assigned_to]].tasks_dom;
     tasks_dom[0].appendChild(task._progress.dom[0]);
     this.rescaleTaskListHeight(task.assigned_to);
@@ -277,7 +284,7 @@ function ProgressUI(tasks) {
     
     this.main_progress.increase(size);
     
-    $('#QuickProgInfo').text(this.main_progress.getPercent()+"%, "+this.main_progress.dom_cache['eta'].textContent);
+    text(this.cache['#QuickProgInfo'], this.main_progress.getPercent()+"%, "+this.main_progress.dom_cache['eta'].textContent);
   };
   this.onTaskAborted = function(task) {
     if (!task.hasOwnProperty('_progress')) return;

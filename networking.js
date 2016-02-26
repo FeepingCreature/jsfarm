@@ -68,7 +68,8 @@ function RobinQueue(limit) {
     if (!this.scores.hasOwnProperty(task.origin)) {
       this.scores[task.origin] = 0;
     }
-    var msg = task.msg.message, cost = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from) * msg.quality;
+    var msg = task.msg.message;
+    var cost = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from) * task.default_obj.quality;
     this.scores[task.origin] -= cost; // penalize
   }
   this.popTask = function() {
@@ -78,6 +79,7 @@ function RobinQueue(limit) {
     return task;
   };
   this.addTaskMaybe = function(task) {
+    // log("DEBUG: ", this.tasks.length, "==", this.limit);
     var evict_task = null;
     if (this.tasks.length == this.limit) {
       // maybe we replace a queued task?
@@ -93,6 +95,7 @@ function RobinQueue(limit) {
       }
       
       var ntaskscore = this.getScoreForTask(task);
+      // if (worstscore) log("taskqueue at limit: can", ntaskscore, "beat out", worstscore, "as", task.origin, "vs.", this.tasks[worstscore_id].origin);
       if (!worstscore || worstscore >= ntaskscore) { // no tasks with worse score
         return false;
       }
@@ -101,6 +104,9 @@ function RobinQueue(limit) {
       evict_task = this.tasks[worstscore_id];
       this.tasks.splice(worstscore_id, 1);
       
+      // kick 'em while they're down
+      // (the goal is to reduce evict churn)
+      this.penalizeTaskOrigin(evict_task);
       // log("evict", JSON.stringify(evict_task.msg), "because", ntaskscore, "beats", worstscore);
     }
     this.tasks.push(task);
@@ -108,6 +114,27 @@ function RobinQueue(limit) {
     if (evict_task) evict_task.evict();
     
     return true;
+  };
+}
+
+/** @constructor */
+function Range(x_from, y_from, x_to, y_to) {
+  this.x_from = x_from;
+  this.y_from = y_from;
+  this.x_to = x_to;
+  this.y_to = y_to;
+  this.PACK_AS_OBJECT = null;
+}
+
+/** @constructor */
+function WorkTask(range) {
+  this.state = 'queued';
+  this.assigned_to = null;
+  this.progress = 0.0;
+  this.message = range;
+  this.sclone = function() {
+    var msg = this.message;
+    return new WorkTask(new Range(msg.x_from, msg.y_from, msg.x_to, msg.y_to));
   };
 }
 
@@ -192,8 +219,8 @@ function JSFarm() {
         con.send({kind: 'progress', value: frac, channel: msg.channel});
       };
       
-      wrapper.onError = function(error) {
-        con.send({kind: 'error', fatal: true, error: error, channel: msg.channel});
+      wrapper.onError = function(error, fatal) {
+        con.send({kind: 'error', fatal: fatal, error: error, channel: msg.channel});
         delete wrapper.onError;
       };
       
@@ -239,6 +266,7 @@ function JSFarm() {
         return;
       }
       if (msg.kind == 'task') {
+        // log(con.id, "task on", msg.channel);
         var task = new RobinTask(con, function() {
           // log("kick", JSON.stringify(msg));
           con.send({kind: 'error', fatal: false, error: 'task evicted from queue', channel: msg.channel});
@@ -357,17 +385,17 @@ function JSFarm() {
           markNotInFlight(task);
         };
         
-        var con_start_exchange_timer = null;
+        var con_control_timer = null;
         
         var finish = function(reason) {
           return function() {
-            con_start_exchange_timer.kill();
+            clearInterval(con_control_timer);
             // log_id(id, "finish:", reason, ",", JSON.stringify(Array.prototype.slice.call(arguments)));
             for (var i = 0; i < tasksInFlight.length; ++i) {
               var task = tasksInFlight[i];
               if (!task) continue;
               reenqueueTask(task);
-              // log_id(id, "task", task.id, "reset due to connection loss");
+              // log_id(id, "task", channel, "reset due to connection loss");
             }
             log("remove connection "+id+" because "+reason);
             self.progress_ui.onCloseConnection(id);
@@ -388,7 +416,7 @@ function JSFarm() {
               // log_id(id, "exchange timed out");
               if (exchanges[channel].hasOwnProperty('task')) {
                 var task = exchanges[channel].task;
-                log(id, ": timeout on", channel, "reenqueue", task.id);
+                // log(id, ": timeout on", channel, "reenqueue", task.state);
                 reenqueueTask(task);
                 // controversial:
                 // don't start a new exchange here
@@ -405,15 +433,15 @@ function JSFarm() {
           
           var exchange = function(channel) {
             var advance = function() {
-              if (!exchanges.hasOwnProperty(channel)) return; // died
-              
+              if (!exchanges.hasOwnProperty(channel)) return; // we are already dead.
               exchanges[channel].timer.reset(); // something happened! reset the timeout
-              con_start_exchange_timer.reset(); // this one too
-              
               exchanges[channel].next = exchanges[channel].next();
             };
             
             var cleanup = function () {
+              // exchange was already killed (by a timeout?) before we received whatever caused this
+              if (!exchanges.hasOwnProperty(channel)) throw "I'm pretty sure this can't happen anymore actually.";
+              
               exchanges[channel].timer.kill();
               delete exchanges[channel];
             };
@@ -423,7 +451,7 @@ function JSFarm() {
               var to = null;
               con.send({kind: "ping", channel: channel});
               con.dynamic('data', function(remove, msg) {
-                if (msg.channel != channel) return;
+                if (msg.channel != channel || !exchanges.hasOwnProperty(channel)) return;
                 
                 if (msg.kind == 'pong') {
                   to = time();
@@ -438,7 +466,7 @@ function JSFarm() {
               con.send({kind: "whoareyou", channel: channel});
               var res = null;
               con.dynamic('data', function(remove, msg) {
-                if (msg.channel != channel) return;
+                if (msg.channel != channel || !exchanges.hasOwnProperty(channel)) return;
                 if (msg.kind != 'iamcalled') throw ("1.1 unexpected kind "+msg.kind);
                 res = msg.label;
                 remove();
@@ -450,18 +478,20 @@ function JSFarm() {
             var taskAccepted = function(task, cps) {
               var result = null;
               var reactTaskAccepted = function(remove, msg) {
-                if (msg.channel != channel) return;
+                if (msg.channel != channel || !exchanges.hasOwnProperty(channel)) return;
                 
                 remove();
                 if (msg.kind == 'accepted') {
                   // log_id(id, "task on", msg.channel, "has been accepted.");
+                  // log(id, "task on", msg.channel, "has been accepted.");
                   task.state = 'processing';
                   task.assigned_to = id;
                   // self.progress_ui.onTaskAccepted(task);
                   result = true;
                   advance();
                 } else if (msg.kind == 'rejected') {
-                  // log_id(id, "task", task.id, "rejected:", msg.reason);
+                  // log_id(id, "task", channel, "rejected:", msg.reason);
+                  // log(id, "task", channel, "rejected:", msg.reason);
                   reenqueueTask(task);
                   result = false;
                   advance();
@@ -472,25 +502,23 @@ function JSFarm() {
               
               con.dynamic('data', reactTaskAccepted);
               
-              var msg = $.extend({}, task.message);
-              
-              con.send({kind: 'task', message: msg, channel: channel});
+              con.send({kind: 'task', message: task.message, channel: channel});
               return function() { return cps(result); }; // yield; return result;
             };
             
             var waitTaskDone = function(task, cps) {
               var reactTaskDone = function(remove, msg) {
-                if (msg.channel != channel) return;
+                if (msg.channel != channel || !exchanges.hasOwnProperty(channel)) return;
                 if (msg.kind == 'done') {
                   remove();
                   advance();
                 } else if (msg.kind == 'error') {
                   // late rejection
                   if (msg.fatal) {
-                    log(id, ": task", task.id, "failed:", msg.fatal, msg.error, "(3)");
+                    log(id, ": task", channel, "failed:", msg.fatal, msg.error, "(3)");
                     failTask(task);
                   } else {
-                    // log(id, ": task", task.id, "kicked from queue, was", task.state);
+                    // log(id, ": task", channel, "kicked from queue, was", task.state);
                     reenqueueTask(task); // recoverable, like queue kicks
                   }
                   cleanup();
@@ -513,16 +541,16 @@ function JSFarm() {
             var waitTaskResultReceived = function(task, cps) {
               var data = null;
               var reactTaskResultReceived = function(remove, msg) {
-                if (msg.channel != channel) return;
+                if (msg.channel != channel || !exchanges.hasOwnProperty(channel)) return;
                 
                 if (msg.kind == 'result') {
                   data = new Uint8Array(msg.data);
-                  // log_id(id, "task", task.id, "received data", data.length);
+                  // log_id(id, "task", channel, "received data", data.length);
                   remove();
                   advance();
                 } else if (msg.kind == 'error') {
                   // very late rejection
-                  log(id, ": task", task.id, "failed:", msg.error, "(4)");
+                  log(id, ": task", channel, "failed:", msg.error, "(4)");
                   if (msg.fatal) {
                     failTask(task);
                   } else {
@@ -531,16 +559,6 @@ function JSFarm() {
                   cleanup();
                   remove();
                   // don't bother reentering
-                } else if (msg.kind == 'done') {
-                  log("Yes, I know that task", task.id, "is done. Why did you tell me twice? (Tolerated. But why??)");
-                } else if (msg.kind == 'progress') {
-                  var frac = +msg.value;
-                  task.progress = frac;
-                  self.onTaskProgress(task.message, frac);
-                  if (!task.hasOwnProperty('_progress')) {
-                    self.progress_ui.onTaskAccepted(task);
-                  }
-                  self.progress_ui.onTaskProgressed(task);
                 } else throw ("4 unexpected kind "+msg.kind);
               };
               con.dynamic('data', reactTaskResultReceived);
@@ -583,6 +601,7 @@ function JSFarm() {
                   // as soon as we have the label...
                   self.progress_ui.onOpenConnection(id, peerinfo.label);
                   firstExchangeOnConnection = false;
+                  con.send({kind: 'default', object: self.task_defaults});
                 }
                 
                 var if_ping_set_body = null;
@@ -621,12 +640,10 @@ function JSFarm() {
                     return null;
                   }
                   
-                  con.send({kind: 'default', object: self.task_default});
-                  
                   exchanges[channel].task = task;
                   
-                  // log("submit task", id, ":", task.id, ":", task.message.y_from);
-                  // log_id(id, "task", task.id, "submitting");
+                  // log(id, "submit task", channel, ":", task.message.x_from, task.message.y_from);
+                  // log_id(id, "task", channel, "submitting");
                   
                   var if_task_accepted_body = function(cps) {
                     return taskAccepted(task, function(accepted) {
@@ -644,15 +661,13 @@ function JSFarm() {
                   };
                   
                   return if_task_accepted_body(function() {
-                    // log_id(id, "task", task.id, "was accepted");
-                    
                     return waitTaskDone(task, function() {
                       // maybe peer has more threads free now!! :o
                       // nag it some more
                       startExchange();
                       
                       return waitTaskResultReceived(task, function(data) {
-                        // log("received task", id, ":", task.id, ":", task.message.y_from);
+                        // log("received task", id, ":", channel, ":", task.message.y_from);
                         var resultInfo = {
                           x_from: task.message.x_from,
                           y_from: task.message.y_from,
@@ -674,14 +689,14 @@ function JSFarm() {
           
           // in the absence of other occasions, start a fresh exchange at least once a second
           // this prevents us from getting stuck if we get rejected on all fronts, for instance
-          con_start_exchange_timer = new TimeoutTimer(1000, function() {
-            con_start_exchange_timer.reset().run();
+          
+          con_control_timer = setInterval(function() {
             if (self.gotUnfinishedTasks()) {
               startExchange();
             } else {
               con.close(); // work is done, shut down.
             }
-          });
+          }, 1000);
           
           startExchange();
         });
@@ -713,26 +728,33 @@ function JSFarm() {
       };
       
       // check regularly (maybeSpawn will naturally bail if we're at the limit)
+      var newConnections_timer;
       var openNewConnectionsPeriodically = function() {
-        if (!self.gotUnfinishedTasks()) return; // TODO self.done()
-        
-        setTimeout(openNewConnectionsPeriodically, 1000);
+        // TODO self.done()
+        if (!self.gotUnfinishedTasks()) {
+          clearInterval(newConnections_timer);
+          return;
+        }
         maybeSpawnNewConnections();
       };
-      openNewConnectionsPeriodically();
+      newConnections_timer = setInterval(openNewConnectionsPeriodically, 1000);
+      maybeSpawnNewConnections();
       
+      var recheck_timer;
       var recheckPeersPeriodically = function() {
-        if (!self.gotUnfinishedTasks()) return; // TODO self.done()
-        
-        // check every 10s
-        setTimeout(recheckPeersPeriodically, 10000);
+        // TODO self.done()
+        if (!self.gotUnfinishedTasks()) {
+          clearInterval(recheck_timer);
+          return;
+        }
         
         if (!must_recheck_flag) return;
         must_recheck_flag = false; // yes yes, I'm on it
         
         recheckPeers();
       };
-      recheckPeersPeriodically();
+      recheck_timer = setInterval(recheckPeersPeriodically, 10000);
+      recheckPeers();
     });
   };
   this.shuffle = function(top_num) {
@@ -765,16 +787,9 @@ function JSFarm() {
   this.onTaskStart = null;
   this.onTaskDone = null;
   this.onTaskProgress = null;
-  this.taskcount = 0;
-  this.addTask = function(msg) {
-    var task = {
-      state: 'queued',
-      assigned_to: null,
-      progress: 0,
-      id: this.taskcount++,
-      message: msg,
-    };
-    if (this.onTaskAdd) this.onTaskAdd(msg);
+  this.addTask = function(range) {
+    var task = new WorkTask(range);
+    if (this.onTaskAdd) this.onTaskAdd(range);
     this.tasks.push(task);
   };
   this.peekQueuedTask = function() {
@@ -789,10 +804,10 @@ function JSFarm() {
   };
   this.cost_estimate_seconds = 1;
   this.cost_estimate_pixels = 0;
-  this.task_default = {};
+  this.task_defaults = {};
   this.estimSubdivideTask = function(task) {
     var msg = task.message;
-    var dw = this.task_default.dw, dh = this.task_default.dh;
+    var dw = this.task_defaults.dw, dh = this.task_defaults.dh;
     var task_pixels = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from);
     var estim_seconds_per_pixel = this.cost_estimate_seconds / this.cost_estimate_pixels;
     var estim_seconds_per_task = task_pixels * estim_seconds_per_pixel;
@@ -801,8 +816,7 @@ function JSFarm() {
     if (!must_split && (estim_seconds_per_task <= max_seconds_per_task || task_pixels == 1)) return false;
     // log("subdivide task: targeting", max_seconds_per_task, ", estimated", estim_seconds_per_task, "for", task_pixels);
     // subdivide into four quadrants
-    var tl = task, tr = $.extend(true, {}, task),
-      bl = $.extend(true, {}, task), br = $.extend(true, {}, task);
+    var tl = task, tr = task.sclone(), bl = task.sclone(), br = task.sclone();
     
     var xsplit = msg.x_from + Math.ceil((msg.x_to - msg.x_from) / 2);
     var ysplit = msg.y_from + Math.ceil((msg.y_to - msg.y_from) / 2);
@@ -822,19 +836,16 @@ function JSFarm() {
     
     var pushed = 0;
     if (x_didsplit && task_touches_area(tr)) {
-      tr.id = this.tasks.length;
       if (this.onTaskAdd) this.onTaskAdd(tr.message);
       this.tasks.push(tr);
       pushed ++;
     }
     if (y_didsplit && task_touches_area(bl)) {
-      bl.id = this.tasks.length;
       if (this.onTaskAdd) this.onTaskAdd(bl.message);
       this.tasks.push(bl);
       pushed ++;
     }
     if (x_didsplit && y_didsplit && task_touches_area(br)) {
-      br.id = this.tasks.length;
       if (this.onTaskAdd) this.onTaskAdd(br.message);
       this.tasks.push(br);
       pushed ++;
@@ -871,7 +882,7 @@ function JSFarm() {
         // clean up
         this.worker.terminate();
         if (this.hasOwnProperty('onError')) {
-          this.onError("Timeout: computation exceeded 30s");
+          this.onError("Timeout: computation exceeded 30s", false);
         }
         // and restart
         self._startWorker(marker, index);
@@ -911,7 +922,7 @@ function JSFarm() {
       } else if (msg.kind == 'error') {
         workerWrapper.setState('idle');
         if (workerWrapper.hasOwnProperty('onError')) {
-          workerWrapper.onError(msg.error);
+          workerWrapper.onError(msg.error, true);
         }
       } else if (msg.kind == "progress") {
         if (workerWrapper.hasOwnProperty('onProgress')) {

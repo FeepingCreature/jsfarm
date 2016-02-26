@@ -30,6 +30,7 @@ echo "<link rel=\"stylesheet\" href=\"$MYTHEME.css\">"
 cat <<'EOT'
 <link rel="stylesheet" href="css/site.css">
 <link rel="stylesheet" href="addon/lint/lint.css">
+<link rel="stylesheet" href="lib/codemirror.css">
 
 <script src="jquery.min.js"></script> 
 <!-- Latest compiled and minified JavaScript -->
@@ -39,7 +40,6 @@ cat <<'EOT'
 <script src="js.cookie-2.1.0.min.js"></script>
 
 <script src="lib/codemirror.js"></script>
-<link rel="stylesheet" href="lib/codemirror.css">
 <script src="mode/scheme/scheme.js"></script>
 <script src="addon/edit/matchbrackets.js"></script>
 <script src="addon/selection/mark-selection.js"></script>

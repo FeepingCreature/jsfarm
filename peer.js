@@ -2321,7 +2321,7 @@ Packer.prototype.pack = function(value){
         } else {
           this.pack_bin(value.buffer);
         }
-      } else if (constructor == Object){
+      } else if (constructor == Object || 'PACK_AS_OBJECT' in value){
         this.pack_object(value);
       } else if (constructor == Date){
         this.pack_string(value.toString());

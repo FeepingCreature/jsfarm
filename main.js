@@ -292,7 +292,7 @@ function renderScene() {
   
   var dw = canvas.width, dh = canvas.height;
   
-  jsfarm.task_default = {
+  jsfarm.task_defaults = {
     source: fullsrc,
     dw: dw, dh: dh,
     quality: quality
@@ -325,11 +325,8 @@ function renderScene() {
   jsfarm.onTaskProgress = function(task, frac) {
   };
   
-  var task = {
-    x_from: 0, x_to: Math.max(next_pot(dw), next_pot(dh)),
-    y_from: 0, y_to: Math.max(next_pot(dw), next_pot(dh))
-  };
-  
+  var extent = Math.max(next_pot(dw), next_pot(dh));
+  var task = new Range(0, 0, extent, extent);
   jsfarm.addTask(task);
   
   $('#progress').empty().append(jsfarm.progress_ui.dom);
