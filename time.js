@@ -1,4 +1,4 @@
-function time() { return (new Date()).getTime(); }
+function time() { return Date.now(); }
 
 /** @constructor */
 function TimeoutTimer(timeout_delta, onTimeout) {

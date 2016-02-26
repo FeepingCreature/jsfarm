@@ -96,11 +96,14 @@ function ProgressInfo(settings) {
   this.reset = function(total) {
     this.max = total;
     this.start = time();
-    this.value = 0;
+    this.update(0);
   };
   
   this.getProgress = function() {
     return this.value / this.max;
+  };
+  this.getPercent = function() {
+    return Math.floor(this.getProgress() * 100);
   };
   this.getEstimate = function() {
     var
@@ -118,7 +121,7 @@ function ProgressInfo(settings) {
     
     this.value = newval;
     
-    var prog_percent = Math.floor(this.getProgress() * 100);
+    var prog_percent = this.getPercent();
     var newlabel = null;
     if (settings.percent && settings.fraction) {
       newlabel = prog_percent+"%, "+this.value+" / "+this.max;
@@ -174,7 +177,10 @@ function ProgressUI(tasks) {
   this.reset = function() {
     if (this.tasks.length != 1) throw "internal error";
     var msg = this.tasks[0].message;
+    
     this.main_progress.reset((msg.x_to - msg.x_from) * (msg.y_to - msg.y_from));
+    
+    $('#QuickProgInfo').text("");
     
     for (var key in this.contributors) if (this.contributors.hasOwnProperty(key)) {
       this.contributors[key].dom_outer.detach();
@@ -209,7 +215,7 @@ function ProgressUI(tasks) {
     var tasks_dom = proginfo.tasks_dom;
     var numRows = tasks_dom[0].childNodes.length;
     var setHeight = proginfo._set_height || 0;
-    var newHeight = numRows * 5;
+    var newHeight = numRows * 5 + 2;
     if (newHeight > setHeight) {
       tasks_dom[0].style.display = "inherit";
       tasks_dom[0].style.height = newHeight+"px";
@@ -234,7 +240,7 @@ function ProgressUI(tasks) {
         append($('<dt></dt>').text(label)).
         append($('<dd></dd>').append(proginfo.dom).append(proginfo.tasks_dom));
       
-      this.dom.append(proginfo.dom_outer);
+      this.dom.prepend(proginfo.dom_outer);
     }
     proginfo.refs ++;
   };
@@ -266,10 +272,15 @@ function ProgressUI(tasks) {
     
     var msg = task.message;
     var size = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from);
-    this.main_progress.increase(size);
+    
     this.contributors[this.label_by_id[task.assigned_to]].increase(size);
+    
+    this.main_progress.increase(size);
+    
+    $('#QuickProgInfo').text(this.main_progress.getPercent()+"%, "+this.main_progress.dom_cache['eta'].textContent);
   };
   this.onTaskAborted = function(task) {
+    if (!task.hasOwnProperty('_progress')) return;
     var node = task._progress.dom[0];
     node.parentNode.removeChild(node);
     this.rescaleTaskListHeight(task.assigned_to);

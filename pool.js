@@ -16,6 +16,20 @@ fncache = {
   fn: null
 };
 
+function is_pot(i) {
+  return (i & (i - 1)) == 0;
+}
+
+var global_ram = new ArrayBuffer(1024*32768);
+
+var arraycache = {}; // we only use pot ranges, so this should be a low number
+function get_uint8array(size) {
+  if (!arraycache.hasOwnProperty(size)) {
+    arraycache[size] = new Uint8Array(size);
+  }
+  return arraycache[size];
+}
+
 onmessage = function(e) {
   try {
     var x_from = e.data.x_from, x_to = e.data.x_to;
@@ -30,6 +44,8 @@ onmessage = function(e) {
     
     var width = x_to - x_from, height = y_to - y_from;
     if (width < 0 || height < 0) throw "render range negative";
+    if (!is_pot(width) || !is_pot(height)) throw "render range must be power-of-two sized";
+    if (width != height) throw "render range must be quadratic";
     
     var settings = {dw: dw, dh: dh, quality: quality};
     
@@ -44,7 +60,7 @@ onmessage = function(e) {
         config.count++;
         
         var width = config.x_to - config.x_from;
-        var t = (new Date()).getTime();
+        var t = Date.now();
         if (t - config.last_t > 1000) {
           var height = config.y_to - config.y_from;
           var progress = config.count / (width * height);
@@ -90,19 +106,19 @@ onmessage = function(e) {
         isFinite: isFinite,
         stackborder: 1024*512,
         memory_limit: 1024*32768,
-      }, new ArrayBuffer(1024*32768));
+      }, global_ram);
       
       fncache.source = s2src;
       fncache.settings = settings;
       fncache.fn = function(x_from, y_from, x_to, y_to) {
         
-        config.array = new Uint8Array(4 * (x_to - x_from) * (y_to - y_from));
+        config.array = get_uint8array(4 * (x_to - x_from) * (y_to - y_from));
         config.x_from = x_from;
         config.y_from = y_from;
         config.x_to = x_to;
         config.y_to = y_to;
         config.count = 0;
-        config.last_t = (new Date()).getTime() - 800; // initial message already after 200ms
+        config.last_t = 0; // initial message straight off
         
         compiled.resetGlobals();
         

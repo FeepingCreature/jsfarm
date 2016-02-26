@@ -193,6 +193,19 @@ function LoadStateFromAnchor(onDone) {
   if (numLoading == 0) onDone(); // nothing to do, call immediately
 }
 
+function next_pot(n) {
+  // thanks, http://stackoverflow.com/questions/1322510/given-an-integer-how-do-i-find-the-next-largest-power-of-two-using-bit-twiddlin
+  // repeatedly overlap n-1 with itself to fill every bit under the msb with 1 (to reach 2^k-1)
+  n --;
+  n |= n >> 1;
+  n |= n >> 2;
+  n |= n >> 4;
+  n |= n >> 8;
+  n |= n >> 16;
+  n ++;
+  return n;
+}
+
 function renderScene() {
   $(window).trigger("startRender");
   
@@ -229,49 +242,35 @@ function renderScene() {
   if (canvas.width != nwidth || canvas.height != nheight) {
     canvas.width = nwidth;
     canvas.height = nheight;
-    $(canvas).css('height', canvas.height * 512 / canvas.width);
+    if (nwidth >= nheight) {
+      $(canvas).css('width', 512).css('height', canvas.height * 512 / canvas.width);
+    } else {
+      $(canvas).css('height', 512).css('width', canvas.width * 512 / canvas.height);
+    }
   }
   
   var ctx = canvas.getContext('2d');
   
   var quality = document.getElementById('quality').value|0;
   
-  var sidesbrush = ctx.createImageData(6, canvas.height);
-  
-  for (var y = 0; y < canvas.height; ++y) {
-    for (var x = 0; x < 6; ++x) {
-      var base = y * 6 + x;
-      sidesbrush.data[base*4 + 0] = 200;
-      sidesbrush.data[base*4 + 1] = 80;
-      sidesbrush.data[base*4 + 2] = 80;
-      sidesbrush.data[base*4 + 3] = 255;
-    }
-  }
-  
-  var wipbrush_cache = {};
-  var get_wipbrush = function(width, height) {
-    var key = width+"x"+height;
-    if (!wipbrush_cache.hasOwnProperty(key)) {
-      var wipbrush = ctx.createImageData(width, height);
-      for (var base = 0; base < width * height; ++base) {
-        wipbrush.data[base*4 + 0] = 160;
-        wipbrush.data[base*4 + 1] = 220;
-        wipbrush.data[base*4 + 2] = 255;
-        wipbrush.data[base*4 + 3] = 255;
+  var memoize = function(fn) {
+    var cache_obj = {};
+    return function() {
+      var key = JSON.stringify(arguments);
+      if (!cache_obj.hasOwnProperty(key)) {
+        var res = fn.apply(this, arguments);
+        cache_obj[key] = res;
       }
-      return wipbrush;
-    }
-    return wipbrush_cache[key];
+      return cache_obj[key];
+    };
   };
   
-  var brush_cache = {};
-  var get_brush = function(width, height) {
-    var key = width+"x"+height;
-    if (!brush_cache.hasOwnProperty(key)) {
-      brush_cache[key] = ctx.createImageData(width, height);
-    }
-    return brush_cache[key];
-  };
+  // var wipcolor = {r: 255, g: 180, b: 160};
+  var wipcolor = {r: 0, g: 0, b: 0};
+  
+  var get_brush = memoize(function(width, height) {
+    return ctx.createImageData(width, height);
+  });
   
   /*
   var start = window.performance.now();
@@ -291,35 +290,47 @@ function renderScene() {
   
   jsfarm.reset();
   
-  ctx.putImageData(sidesbrush, 0, 0);
-  ctx.putImageData(sidesbrush, canvas.width - 6, 0);
-  
   var dw = canvas.width, dh = canvas.height;
   
-  var task = {
+  jsfarm.task_default = {
     source: fullsrc,
     dw: dw, dh: dh,
-    quality: quality,
-    x_from: 0, x_to: dw,
-    y_from: 0, y_to: dh
+    quality: quality
   };
   
-  jsfarm.addTask(task).
-    onStart(function(task) {
-      var brush = get_wipbrush(task.x_to - task.x_from, task.y_to - task.y_from);
-      ctx.putImageData(brush, task.x_from, task.y_from);
-    }).
-    onDone(function(task, msg) {
-      var wdata = msg.data;
-      var brush = get_brush(task.x_to - task.x_from, task.y_to - task.y_from);
-      var bdata = brush.data;
-      for (var i = 0; i < bdata.length; ++i) {
-        bdata[i] = wdata[i];
-      }
-      ctx.putImageData(brush, task.x_from, task.y_from);
-    }).
-    onProgress(function(task, frac) {
-    });
+  jsfarm.onTaskAdd = function(task) {
+    ctx.fillStyle = "rgba("+wipcolor.r+", "+wipcolor.g+", "+wipcolor.b+", 0.14)";
+    ctx.fillRect(task.x_from, task.y_from, task.x_to - task.x_from, task.y_to - task.y_from);
+    // work around strokeRect weirdness
+    // see http://www.mobtowers.com/html5-canvas-crisp-lines-every-time/
+    // ctx.strokeStyle = "rgba("+wipcolor.r+", "+wipcolor.g+", "+wipcolor.b+", 0.6)";
+    // ctx.strokeRect(task.x_from + 0.5, task.y_from + 0.5, task.x_to - task.x_from - 1, task.y_to - task.y_from - 1);
+  };
+  
+  jsfarm.onTaskStart = function(task) {
+    ctx.fillStyle = "rgb("+wipcolor.r+", "+wipcolor.g+", "+wipcolor.b+")";
+    ctx.fillRect(task.x_from, task.y_from, task.x_to - task.x_from, task.y_to - task.y_from);
+  };
+  
+  jsfarm.onTaskDone = function(task, msg) {
+    var wdata = msg.data;
+    var brush = get_brush(task.x_to - task.x_from, task.y_to - task.y_from);
+    var bdata = brush.data;
+    for (var i = 0; i < bdata.length; ++i) {
+      bdata[i] = wdata[i];
+    }
+    ctx.putImageData(brush, task.x_from, task.y_from);
+  };
+  
+  jsfarm.onTaskProgress = function(task, frac) {
+  };
+  
+  var task = {
+    x_from: 0, x_to: Math.max(next_pot(dw), next_pot(dh)),
+    y_from: 0, y_to: Math.max(next_pot(dw), next_pot(dh))
+  };
+  
+  jsfarm.addTask(task);
   
   $('#progress').empty().append(jsfarm.progress_ui.dom);
   

@@ -340,9 +340,7 @@ function JSFarm() {
         };
         
         var reenqueueTask = function(task) {
-          if (task.state != 'asking') {
-            self.progress_ui.onTaskAborted(task);
-          }
+          self.progress_ui.onTaskAborted(task);
           task.state = 'queued';
           task.assigned_to = null;
           markNotInFlight(task);
@@ -351,7 +349,7 @@ function JSFarm() {
         var finishTask = function(task, timer, resultInfo) {
           var msg = task.message;
           task.state = 'done';
-          task.onDone(msg, resultInfo);
+          self.onTaskDone(msg, resultInfo);
           self.progress_ui.onTaskCompleted(task);
           self.cost_estimate_seconds += timer.elapsed() / 1000;
           self.cost_estimate_pixels += (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from);
@@ -379,13 +377,13 @@ function JSFarm() {
         };
         
         con.on('open', function() {
-          var exchanges = [];
+          var exchanges = {};
           var channel_counter = 0;
         
           var startExchange = function() {
             var channel = channel_counter ++;
-            // log_id(id, "start new exchange on channel", channel);
-            exchanges[channel] = exchange(channel);
+            // log(id, "start new exchange on channel", channel);
+            exchanges[channel] = {};
             exchanges[channel].timer = new TimeoutTimer(50000, function() {
               // log_id(id, "exchange timed out");
               if (exchanges[channel].hasOwnProperty('task')) {
@@ -397,70 +395,69 @@ function JSFarm() {
                 // the peer has demonstrated that it cannot render this task in a timely manner
                 // leave it to another peer - hope that one shows up.
               }
-              exchanges[channel] = null;
+              delete exchanges[channel];
             });
             
-            exchanges[channel].next();
+            exchanges[channel].next = exchange(channel);
           };
           
           var dfl_src = null;
           
-          var exchange = function*(channel) {
+          var exchange = function(channel) {
             var advance = function() {
-              if (exchanges[channel] == null) return; // died
+              if (!exchanges.hasOwnProperty(channel)) return; // died
               
               exchanges[channel].timer.reset(); // something happened! reset the timeout
               con_start_exchange_timer.reset(); // this one too
               
-              exchanges[channel].next();
+              exchanges[channel].next = exchanges[channel].next();
             };
             
-            function cleanup() {
+            var cleanup = function () {
               exchanges[channel].timer.kill();
-              exchanges[channel] = null;
-            }
+              delete exchanges[channel];
+            };
             
-            var time_response = function*() {
+            var time_response = function(cps) {
               var from = time();
               var to = null;
               con.send({kind: "ping", channel: channel});
-              con.onceSuccessful('data', function(msg) {
+              con.dynamic('data', function(remove, msg) {
                 if (msg.channel != channel) return;
                 
                 if (msg.kind == 'pong') {
                   to = time();
+                  remove();
                   advance();
-                  return true;
-                } else throw ("1 unexpected kind "+msg.kind);
+                } else throw ("1 unexpected kind "+msg.kind+" on "+channel);
               });
-              yield;
-              return to - from;
+              return function() { return cps(to - from); }; // yield; return to - from;
             };
             
-            var get_label = function*() {
+            var get_label = function(cps) {
               con.send({kind: "whoareyou", channel: channel});
               var res = null;
-              con.onceSuccessful('data', function(msg) {
+              con.dynamic('data', function(remove, msg) {
                 if (msg.channel != channel) return;
                 if (msg.kind != 'iamcalled') throw ("1.1 unexpected kind "+msg.kind);
                 res = msg.label;
+                remove();
                 advance();
-                return true;
               });
-              yield;
-              return res;
+              return function() { return cps(res); }; // yield; return res;
             };
             
-            var taskAccepted = function*(task) {
+            var taskAccepted = function(task, cps) {
               var result = null;
-              var reactTaskAccepted = function(msg) {
+              var reactTaskAccepted = function(remove, msg) {
                 if (msg.channel != channel) return;
                 
+                remove();
                 if (msg.kind == 'accepted') {
                   // log_id(id, "task on", msg.channel, "has been accepted.");
                   task.state = 'processing';
                   task.assigned_to = id;
-                  self.progress_ui.onTaskAccepted(task);
+                  // self.progress_ui.onTaskAccepted(task);
                   result = true;
                   advance();
                 } else if (msg.kind == 'rejected') {
@@ -469,36 +466,24 @@ function JSFarm() {
                   result = false;
                   advance();
                 } else throw ("2 unexpected kind "+msg.kind);
-                return true;
               };
               task.state = 'asking';
               tasksInFlight.push(task);
               
-              con.onceSuccessful('data', reactTaskAccepted);
-              
-              // I'm _pretty_ sure peer.js supports reliable in-order delivery.
-              // that said, to trigger a timing issue here you gotta be doing
-              // something _really_ weird anyways.
-              // so honestly, it's your own fault.
-              if (dfl_src != task.message.source) {
-                con.send({kind: 'default', object: {source: task.message.source}});
-                dfl_src = task.message.source;
-              }
+              con.dynamic('data', reactTaskAccepted);
               
               var msg = $.extend({}, task.message);
-              delete msg.source; // already set in the default object
               
               con.send({kind: 'task', message: msg, channel: channel});
-              yield;
-              return result;
+              return function() { return cps(result); }; // yield; return result;
             };
             
-            var waitTaskDone = function*() {
-              var reactTaskDone = function(msg) {
+            var waitTaskDone = function(task, cps) {
+              var reactTaskDone = function(remove, msg) {
                 if (msg.channel != channel) return;
                 if (msg.kind == 'done') {
+                  remove();
                   advance();
-                  return true;
                 } else if (msg.kind == 'error') {
                   // late rejection
                   if (msg.fatal) {
@@ -509,29 +494,32 @@ function JSFarm() {
                     reenqueueTask(task); // recoverable, like queue kicks
                   }
                   cleanup();
+                  remove();
                   // don't bother reentering this exchange
-                  return true;
                 } else if (msg.kind == 'progress') {
                   var frac = +msg.value;
                   task.progress = frac;
-                  task.onProgress(task.message, frac);
+                  self.onTaskProgress(task.message, frac);
+                  if (!task.hasOwnProperty('_progress')) {
+                    self.progress_ui.onTaskAccepted(task);
+                  }
                   self.progress_ui.onTaskProgressed(task);
                 } else throw ("3 unexpected kind "+msg.kind);
               };
-              con.onceSuccessful('data', reactTaskDone);
-              yield;
+              con.dynamic('data', reactTaskDone);
+              return cps; // yield
             };
             
-            var waitTaskResultReceived = function*() {
+            var waitTaskResultReceived = function(task, cps) {
               var data = null;
-              var reactTaskResultReceived = function(msg) {
+              var reactTaskResultReceived = function(remove, msg) {
                 if (msg.channel != channel) return;
                 
                 if (msg.kind == 'result') {
                   data = new Uint8Array(msg.data);
                   // log_id(id, "task", task.id, "received data", data.length);
+                  remove();
                   advance();
-                  return true;
                 } else if (msg.kind == 'error') {
                   // very late rejection
                   log(id, ": task", task.id, "failed:", msg.error, "(4)");
@@ -541,109 +529,147 @@ function JSFarm() {
                     reenqueueTask(task); // recoverable
                   }
                   cleanup();
+                  remove();
                   // don't bother reentering
-                  return true;
                 } else if (msg.kind == 'done') {
                   log("Yes, I know that task", task.id, "is done. Why did you tell me twice? (Tolerated. But why??)");
                 } else if (msg.kind == 'progress') {
                   var frac = +msg.value;
                   task.progress = frac;
-                  task.onProgress(task.message, frac);
+                  self.onTaskProgress(task.message, frac);
+                  if (!task.hasOwnProperty('_progress')) {
+                    self.progress_ui.onTaskAccepted(task);
+                  }
                   self.progress_ui.onTaskProgressed(task);
                 } else throw ("4 unexpected kind "+msg.kind);
               };
-              con.onceSuccessful('data', reactTaskResultReceived);
-              yield;
-              return data;
+              con.dynamic('data', reactTaskResultReceived);
+              return function() { return cps(data); };
             };
             
             if (!self.peerinfo.hasOwnProperty(id)) self.peerinfo[id] = {};
             
             var peerinfo = self.peerinfo[id];
             
-            if (!peerinfo.hasOwnProperty('wait_label_completion')) {
-              peerinfo.wait_label_completion = function*(advance) {
-                peerinfo.on_label_completion(advance);
-                yield;
+            var if_label_set_body = null;
+            if (!peerinfo.hasOwnProperty('wait_label_completion')) if_label_set_body = function(cps) {
+              var attached_fns = [];
+              
+              peerinfo.wait_label_completion = function(advance, cps) {
+                attached_fns.push(advance);
+                return cps; // yield
               };
               
               // we're the first - query for label
-              var attached_fns = [];
-              peerinfo.on_label_completion = function(fn) { attached_fns.push(fn); };
-              
-              peerinfo.label = yield* get_label();
-              
-              for (var i = 0; i < attached_fns.length; ++i) attached_fns[i](); // wake up the others who are waiting on us
-              
-              peerinfo.wait_label_completion = function*(advance) { }; // pass clean through now
-            }
-            
-            yield* peerinfo.wait_label_completion(advance);
-            
-            if (firstExchangeOnConnection) {
-              // as soon as we have the label...
-              self.progress_ui.onOpenConnection(id, peerinfo.label);
-              firstExchangeOnConnection = false;
-            }
-            
-            if (!self.peerinfo[id].hasOwnProperty('ping')) {
-              // prevent other channels from starting duplicate checks
-              self.peerinfo[id].ping = null;
-              var tries = 3;
-              var sum = 0;
-              for (var i = 0; i < tries; ++i) {
-                sum += yield* time_response();
-              }
-              var ping = sum / tries;
-              // log_id(id, "ping", "is "+(ping|0)+"ms");
-              self.peerinfo[id].ping = ping;
-            }
-            
-            var task = self.getQueuedTask();
-            if (!task) {
-              cleanup();
-              return;
-            }
-            
-            exchanges[channel].task = task;
-            
-            // log("submit task", id, ":", task.id, ":", task.message.y_from);
-            // log_id(id, "task", task.id, "submitting");
-            
-            if (yield* taskAccepted(task)) {
-              task.onStart(task.message);
-              // maybe this peer has more threads free?
-              // start a new exchange
-              startExchange();
-            } else {
-              cleanup();
-              return;
-            }
-            
-            // log_id(id, "task", task.id, "was accepted");
-            
-            yield* waitTaskDone();
-            
-            // maybe peer has more threads free now!! :o
-            // nag it some more
-            startExchange();
-            
-            var data = yield* waitTaskResultReceived();
-            
-            // log("received task", id, ":", task.id, ":", task.message.y_from);
-            
-            var resultInfo = {
-              x_from: task.message.x_from,
-              y_from: task.message.y_from,
-              x_to: task.message.x_to,
-              y_to: task.message.y_to,
-              data: data
+              return get_label(function(label) {
+                peerinfo.label = label;
+                
+                // switch off waiting now that label is set
+                peerinfo.wait_label_completion = function(advance, cps) { return cps(); };
+                
+                // wake up the waiting ones
+                for (var i = 0; i < attached_fns.length; ++i) attached_fns[i]();
+                
+                return cps(); // proceed directly.
+              });
+            };
+            else if_label_set_body = function(cps) {
+              return cps();
             };
             
-            finishTask(task, exchanges[channel].timer, resultInfo);
-            
-            cleanup();
-            return;
+            return if_label_set_body(function() {
+              return peerinfo.wait_label_completion(advance, function() {
+                if (firstExchangeOnConnection) {
+                  // as soon as we have the label...
+                  self.progress_ui.onOpenConnection(id, peerinfo.label);
+                  firstExchangeOnConnection = false;
+                }
+                
+                var if_ping_set_body = null;
+                if (!self.peerinfo[id].hasOwnProperty('ping')) if_ping_set_body = function(cps) {
+                  // prevent other channels from starting duplicate checks
+                  self.peerinfo[id].ping = null;
+                  
+                  var tries = 3;
+                  var sum = 0;
+                  
+                  var i = 0;
+                  var loop_body = function(cps) {
+                    return time_response(function(t) {
+                      sum += t;
+                      if (i < tries) {
+                        i++;
+                        return loop_body(cps);
+                      } else return cps();
+                    });
+                  };
+                  
+                  return loop_body(function() {
+                    var ping = sum / tries;
+                    // log_id(id, "ping", "is "+(ping|0)+"ms");
+                    self.peerinfo[id].ping = ping;
+                    return cps();
+                  });
+                }; else if_ping_set_body = function(cps) {
+                  return cps();
+                };
+                
+                return if_ping_set_body(function() {
+                  var task = self.getQueuedTask();
+                  if (!task) {
+                    cleanup();
+                    return null;
+                  }
+                  
+                  con.send({kind: 'default', object: self.task_default});
+                  
+                  exchanges[channel].task = task;
+                  
+                  // log("submit task", id, ":", task.id, ":", task.message.y_from);
+                  // log_id(id, "task", task.id, "submitting");
+                  
+                  var if_task_accepted_body = function(cps) {
+                    return taskAccepted(task, function(accepted) {
+                      if (accepted) {
+                        self.onTaskStart(task.message);
+                        // maybe this peer has more threads free?
+                        // start a new exchange
+                        startExchange();
+                        return cps();
+                      } else {
+                        cleanup();
+                        return null;
+                      }
+                    });
+                  };
+                  
+                  return if_task_accepted_body(function() {
+                    // log_id(id, "task", task.id, "was accepted");
+                    
+                    return waitTaskDone(task, function() {
+                      // maybe peer has more threads free now!! :o
+                      // nag it some more
+                      startExchange();
+                      
+                      return waitTaskResultReceived(task, function(data) {
+                        // log("received task", id, ":", task.id, ":", task.message.y_from);
+                        var resultInfo = {
+                          x_from: task.message.x_from,
+                          y_from: task.message.y_from,
+                          x_to: task.message.x_to,
+                          y_to: task.message.y_to,
+                          data: data
+                        };
+                        
+                        finishTask(task, exchanges[channel].timer, resultInfo);
+                        
+                        cleanup();
+                      });
+                    });
+                  });
+                });
+              });
+            });
           };
           
           // in the absence of other occasions, start a fresh exchange at least once a second
@@ -735,6 +761,10 @@ function JSFarm() {
     this.progress_ui.reset();
     this.giveWorkToIdlePeers();
   };
+  this.onTaskAdd = null;
+  this.onTaskStart = null;
+  this.onTaskDone = null;
+  this.onTaskProgress = null;
   this.taskcount = 0;
   this.addTask = function(msg) {
     var task = {
@@ -743,16 +773,9 @@ function JSFarm() {
       progress: 0,
       id: this.taskcount++,
       message: msg,
-      onStart: function(task) { },
-      onDone: function(task, msg) { },
-      onProgress: function(task, frac) { }
     };
+    if (this.onTaskAdd) this.onTaskAdd(msg);
     this.tasks.push(task);
-    return {
-      onStart: function(fn) { task.onStart = fn; return this; },
-      onDone: function(fn) { task.onDone = fn; return this; },
-      onProgress: function(fn) { task.onProgress = fn; return this; }
-    };
   };
   this.peekQueuedTask = function() {
     while (this.tasks.length && this.tasks[0].state == 'done') {
@@ -766,14 +789,17 @@ function JSFarm() {
   };
   this.cost_estimate_seconds = 1;
   this.cost_estimate_pixels = 0;
+  this.task_default = {};
   this.estimSubdivideTask = function(task) {
     var msg = task.message;
+    var dw = this.task_default.dw, dh = this.task_default.dh;
     var task_pixels = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from);
     var estim_seconds_per_pixel = this.cost_estimate_seconds / this.cost_estimate_pixels;
     var estim_seconds_per_task = task_pixels * estim_seconds_per_pixel;
-    var target_seconds_per_task = 5;
-    if (estim_seconds_per_task <= target_seconds_per_task || task_pixels == 1) return false;
-    // log("subdivide task: targeting", target_seconds_per_task, ", estimated", estim_seconds_per_task, "for", task_pixels);
+    var max_seconds_per_task = 10;
+    var must_split = msg.x_to > dw || msg.y_to > dh; // invalid as-is
+    if (!must_split && (estim_seconds_per_task <= max_seconds_per_task || task_pixels == 1)) return false;
+    // log("subdivide task: targeting", max_seconds_per_task, ", estimated", estim_seconds_per_task, "for", task_pixels);
     // subdivide into four quadrants
     var tl = task, tr = $.extend(true, {}, task),
       bl = $.extend(true, {}, task), br = $.extend(true, {}, task);
@@ -789,21 +815,29 @@ function JSFarm() {
     bl.message.x_to   = xsplit; bl.message.y_from = ysplit;
     br.message.x_from = xsplit; br.message.y_from = ysplit;
     
+    var task_touches_area = function(task) {
+      var msg = task.message;
+      return msg.x_from < dw && msg.y_from < dh;
+    };
+    
     var pushed = 0;
-    if (x_didsplit) {
+    if (x_didsplit && task_touches_area(tr)) {
       tr.id = this.tasks.length;
+      if (this.onTaskAdd) this.onTaskAdd(tr.message);
       this.tasks.push(tr);
       pushed ++;
     }
-    if (y_didsplit) {
+    if (y_didsplit && task_touches_area(bl)) {
       bl.id = this.tasks.length;
+      if (this.onTaskAdd) this.onTaskAdd(bl.message);
       this.tasks.push(bl);
       pushed ++;
-      if (x_didsplit) {
-        br.id = this.tasks.length;
-        this.tasks.push(br);
-        pushed ++;
-      }
+    }
+    if (x_didsplit && y_didsplit && task_touches_area(br)) {
+      br.id = this.tasks.length;
+      if (this.onTaskAdd) this.onTaskAdd(br.message);
+      this.tasks.push(br);
+      pushed ++;
     }
     this.shuffle(pushed);
     return true;

@@ -116,16 +116,18 @@ cat <<'EOT'
   <ul class="nav nav-tabs" role="tablist">
     <li role="presentation" class="active"><a href="#image-pane" aria-controls="image-pane" role="tab" data-toggle="tab" id="image-tab">Render</a></li>
     <li role="presentation"><a href="#progress-pane" aria-controls="progress-pane" role="tab" data-toggle="tab" id="progress-tab">Progress</a></li>
+    <li role="presentation" class="label" id="QuickProgInfo"></li>
   </ul>
 
   <div class="tab-content" style="position:relative;">
     <div role="tabpanel" class="tab-pane active" aria-labelledby="image-tab" id="image-pane" style="display: inherit;">
-      <canvas id="canvas" width="512" height="512" style="border: 1px solid; width: 512px; height: 512px;"></canvas>
+      <div class="canvas-wrapper" style="display: flex; flex-direction: column; justify-content: center; align-items: center; border: 1px solid; border-radius: 2px; width: 514px; height: 514px;">
+        <canvas id="canvas" width="512" height="512" style="margin-top: 6px; width: 512px; height: 512px;"></canvas>
+      </div>
     </div>
     <div role="tabpanel" class="tab-pane panel panel-default" aria-labelledby="progress-tab" id="progress-pane">
       <div class="panel-body" style="padding: 0px;">
         <div id="progress">
-          Progress Report TODO
         </div>
       </div>
     </div>

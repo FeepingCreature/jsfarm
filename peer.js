@@ -1775,14 +1775,14 @@ module.exports = util;
  * @param {Function} fn Event handler to be called.
  * @param {Mixed} context Context for function execution.
  * @param {Boolean} once Only emit once
- * @param {Boolean} onceSuccessful Only emit once where function returns truthy
+ * @param {Boolean} dynamic Emit with an additional function that may be called to remove the handler.
  * @api private
  */
-function EE(fn, context, once, onceSuccessful) {
+function EE(fn, context, once, dynamic) {
   this.fn = fn;
   this.context = context;
   this.once = once || false;
-  this.onceSuccessful = onceSuccessful || false;
+  this.dynamic = dynamic || false;
 }
 
 /**
@@ -1828,58 +1828,80 @@ EventEmitter.prototype.listeners = function listeners(event) {
  */
 EventEmitter.prototype.emit = function emit(event, a1, a2, a3, a4, a5) {
   if (!this._events || !this._events[event]) return false;
-
+  
   var listeners = this._events[event]
     , length = listeners.length
     , len = arguments.length
     , ee = listeners[0]
     , args
+    , args_w_remove
     , i, j;
 
   if (1 === length) {
     if (ee.once) this.removeListener(event, ee.fn, true);
-   
-    var res = null;
-    switch (len) {
-      case 1: res = ee.fn.call(ee.context); break;
-      case 2: res = ee.fn.call(ee.context, a1); break;
-      case 3: res = ee.fn.call(ee.context, a1, a2); break;
-      case 4: res = ee.fn.call(ee.context, a1, a2, a3); break;
-      case 5: res = ee.fn.call(ee.context, a1, a2, a3, a4); break;
-      case 6: res = ee.fn.call(ee.context, a1, a2, a3, a4, a5); break;
-      default:
-        args = new Array(len - 1);
-        for (i = 1; i < len; i++) {
-          args[i - 1] = arguments[i];
-        }
-        res = ee.fn.apply(ee.context, args);
-      break;
+    if (ee.dynamic) {
+      var self = this, remove = function() { self.removeListener(event, ee.fn, true); };
+      switch (len) {
+        case 1: ee.fn.call(ee.context); break;
+        case 2: ee.fn.call(ee.context, remove, a1); break;
+        case 3: ee.fn.call(ee.context, remove, a1, a2); break;
+        case 4: ee.fn.call(ee.context, remove, a1, a2, a3); break;
+        case 5: ee.fn.call(ee.context, remove, a1, a2, a3, a4); break;
+        case 6: ee.fn.call(ee.context, remove, a1, a2, a3, a4, a5); break;
+        default:
+          args_w_remove = arguments.slice();
+          args[0] = remove;
+          ee.fn.apply(ee.context, args_w_remove);
+        break;
+      }
+    } else {
+      switch (len) {
+        case 1: ee.fn.call(ee.context); break;
+        case 2: ee.fn.call(ee.context, a1); break;
+        case 3: ee.fn.call(ee.context, a1, a2); break;
+        case 4: ee.fn.call(ee.context, a1, a2, a3); break;
+        case 5: ee.fn.call(ee.context, a1, a2, a3, a4); break;
+        case 6: ee.fn.call(ee.context, a1, a2, a3, a4, a5); break;
+        default:
+          args = new Array(len - 1);
+          for (i = 1; i < len; i++) {
+            args[i - 1] = arguments[i];
+          }
+          ee.fn.apply(ee.context, args);
+        break;
+      }
     }
-
-    if (ee.onceSuccessful && res) {
-      this.removeListener(event, ee.fn, true);
-    }
-
   } else {
     for (i = 0; i < length; i++) {
       if (listeners[i].once) this.removeListener(event, listeners[i].fn, true);
+      if (listeners[i].dynamic) {
+        var self = this, remove = function() { self.removeListener(event, listeners[i].fn, true); };
+        switch (len) {
+          case 1: listeners[i].fn.call(listeners[i].context, remove); break;
+          case 2: listeners[i].fn.call(listeners[i].context, remove, a1); break;
+          case 3: listeners[i].fn.call(listeners[i].context, remove, a1, a2); break;
+          default:
+            if (!args_w_remove) for (j = 1, args_w_remove = new Array(len); j < len; j++) {
+              args[j] = arguments[j];
+            }
+            args_w_remove[0] = remove;
 
-      var res = null;
-      switch (len) {
-        case 1: res = listeners[i].fn.call(listeners[i].context); break;
-        case 2: res = listeners[i].fn.call(listeners[i].context, a1); break;
-        case 3: res = listeners[i].fn.call(listeners[i].context, a1, a2); break;
-        default:
-          if (!args) for (j = 1, args = new Array(len -1); j < len; j++) {
-            args[j - 1] = arguments[j];
-          }
+            listeners[i].fn.apply(listeners[i].context, args_w_remove);
+          break;
+        }
+      } else {
+        switch (len) {
+          case 1: listeners[i].fn.call(listeners[i].context); break;
+          case 2: listeners[i].fn.call(listeners[i].context, a1); break;
+          case 3: listeners[i].fn.call(listeners[i].context, a1, a2); break;
+          default:
+            if (!args) for (j = 1, args = new Array(len -1); j < len; j++) {
+              args[j - 1] = arguments[j];
+            }
 
-          res = listeners[i].fn.apply(listeners[i].context, args);
-        break;
-      }
-
-      if (listeners[i].onceSuccessful && res) {
-        this.removeListener(event, listeners[i].fn, true);
+            listeners[i].fn.apply(listeners[i].context, args);
+          break;
+        }
       }
     }
   }
@@ -1920,7 +1942,7 @@ EventEmitter.prototype.once = function once(event, fn, context) {
   return this;
 };
 
-EventEmitter.prototype.onceSuccessful = function once(event, fn, context) {
+EventEmitter.prototype.dynamic = function dynamic(event, fn, context) {
   if (!this._events) this._events = {};
   if (!this._events[event]) this._events[event] = [];
   this._events[event].push(new EE(fn, context || this, false, true ));
