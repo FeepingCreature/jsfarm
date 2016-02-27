@@ -1826,7 +1826,7 @@ EventEmitter.prototype.listeners = function listeners(event) {
  * @returns {Boolean} Indication if we've emitted an event.
  * @api public
  */
-EventEmitter.prototype.emit = function emit(event, a1, a2, a3, a4, a5) {
+EventEmitter.prototype._emit = function _emit(event, a1, a2, a3, a4, a5) {
   if (!this._events || !this._events[event]) return false;
   
   var listeners = this._events[event]
@@ -1908,6 +1908,21 @@ EventEmitter.prototype.emit = function emit(event, a1, a2, a3, a4, a5) {
 
   return true;
 };
+
+/**
+ * Emit an event, correcting for weird browser bugs that may break things horribly.
+ */
+EventEmitter.prototype.emit = function emit(event, a1, a2, a3, a4, a5) {
+  if (!this._events || !this._events[event]) return false;
+  var self = this;
+  var args = Array.prototype.slice.call(arguments);
+  // this._emit.apply(this, args);
+  // force all events to be processed in the main thread
+  setTimeout(function() {
+    self._emit.apply(self, args);
+  }, 0);
+  return true;
+}
 
 /**
  * Register a new EventListener for the given event.
