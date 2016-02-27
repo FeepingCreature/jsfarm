@@ -153,6 +153,17 @@ cat <<'EOT'
     autoCloseBrackets: true,
     indentUnit: 2,
     gutters: ["error-gutter"],
+    extraKeys: {
+      'Ctrl-Enter': function(cm) {
+        RenderOrCancel();
+      },
+      'Ctrl-Up': function(cm) {
+        $('#quality').val(($('#quality').val()|0) * 2);
+      },
+      'Ctrl-Down': function(cm) {
+        $('#quality').val(($('#quality').val()|0) / 2);
+      },
+    },
 EOT
 echo "    theme: \"$CMTHEME\""
 cat <<'EOT'
@@ -176,6 +187,17 @@ cat <<'EOT'
         
         var editor = CodeMirror.fromTextArea(area[0], editor_cfg);
         editor.setValue(newfile.src);
+        editor.clearHistory();
+        editor.markClean();
+        
+        newfile.checkStar = function(editor, newfile) {
+          return function() {
+            if (editor.isClean(newfile.undostate)) newfile.editstar.css('visibility', 'hidden');
+            else newfile.editstar.css('visibility', 'visible');
+          };
+        }(editor, newfile);
+        editor.on('change', newfile.checkStar);
+        
         newfile.editor = editor;
         newfile.container = div;
       }
@@ -188,6 +210,20 @@ cat <<'EOT'
     this.removeEditors = function(rmfiles) {
       for (var i = 0; i < rmfiles.length; ++i) {
         rmfiles[i].container.remove();
+      }
+    };
+    this.allClean = function() {
+      for (var i = 0; i < this.files.length; ++i) {
+        var file = this.files[i];
+        if (!file.editor.isClean(file.undostate)) return false;
+      }
+      return true;
+    };
+    this.markClean = function() {
+      for (var i = 0; i < this.files.length; ++i) {
+        var file = this.files[i];
+        file.undostate = file.editor.changeGeneration(true);
+        file.checkStar();
       }
     };
     this.addRiders = function(newfiles) {
@@ -205,9 +241,15 @@ cat <<'EOT'
         } else {
           tn = document.createTextNode(newfile.name);
         }
+        var editstar = $('<span style="visibility:hidden;">*</span>');;
+        
         a.append(tn);
+        a.append(editstar);
+        
         li.append(a);
         li.on('click', function(name) { return function() { self.showFile(name); }; }(newfile.name));
+        
+        newfile.editstar = editstar;
         newfile.rider = li;
         
         var position = newfile.position || riders.children().length;
@@ -393,7 +435,7 @@ cat <<'EOT'
 <label for="quality" title="Passed to the script as param-quality.">Quality</label>
 <input type="text" size="4" id="quality" name="quality" value="32">
 
-<hr>
+<hr class="semisane">
 <p>Console</p>
 <div style="clear:both;"></div>
 <div style="border:1px solid; min-height: 10pt;" id="console">

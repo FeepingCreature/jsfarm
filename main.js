@@ -73,6 +73,7 @@ var StorageHandlers = {
           var file_id = /\/raw\/([^\/]*)/.exec(raw_url)[1];
           var key = file_id+","+obj.html_url;
           setAnchorState('gist', key);
+          MarkEditorsSaved();
         }
       });
     },
@@ -192,6 +193,18 @@ function LoadStateFromAnchor(onDone) {
   
   if (numLoading == 0) onDone(); // nothing to do, call immediately
 }
+
+function MarkEditorsSaved() {
+  window.editor.markClean();
+}
+
+$(function() {
+  window.onbeforeunload = function() {
+    if (!window.editor.allClean()) {
+      return "You have unsaved code! Are you sure you want to leave?";
+    }
+  };
+});
 
 function next_pot(n) {
   // thanks, http://stackoverflow.com/questions/1322510/given-an-integer-how-do-i-find-the-next-largest-power-of-two-using-bit-twiddlin
