@@ -55,17 +55,17 @@ function RobinTask(con, evictfn) {
 
 /** @constructor */
 function RobinQueue(limit) {
-  this.scores = {};
+  this.scores = Object.create(null);
   this.limit = limit;
   this.tasks = [];
   this.getScoreForTask = function(task) {
-    if (this.scores.hasOwnProperty(task.origin)) {
+    if (task.origin in this.scores) {
       return this.scores[task.origin];
     }
     return 0;
   };
   this.penalizeTaskOrigin = function(task) {
-    if (!this.scores.hasOwnProperty(task.origin)) {
+    if (!(task.origin in this.scores)) {
       this.scores[task.origin] = 0;
     }
     var msg = task.msg.message;
@@ -126,9 +126,12 @@ function Range(x_from, y_from, x_to, y_to) {
   this.PACK_AS_OBJECT = null;
 }
 
+var worktask_id = 0;
+
 /** @constructor */
 function WorkTask(range) {
   this.state = 'queued';
+  this.id = worktask_id ++;
   this.assigned_to = null;
   this.progress = 0.0;
   this.message = range;
@@ -375,6 +378,62 @@ function ServerConnection() {
 };
 
 /** @constructor */
+function HandlerFn(channel, kind, fn) {
+  this.channel = channel;
+  this.kind = kind;
+  this.fn = fn;
+  this.matches = function(msg) {
+    if (msg.channel != this.channel) return false;
+    if (this.kind instanceof RegExp) return this.kind.test(msg.kind);
+    else return this.kind == msg.kind;
+  };
+}
+
+/** @constructor */
+function MessageDispatcher() {
+  this.msgqueue = Object.create(null);
+  this.msgqueue_id = 0;
+  this.handlers = Object.create(null);
+  this.handlers_id = 0;
+  this.killed = false;
+  this.waitMsg = function(channel, kind, fn) {
+    var handler = new HandlerFn(channel, kind, fn);
+    for (var key in this.msgqueue) {
+      if (handler.matches(this.msgqueue[key])) {
+        var remove = handler.fn(this.msgqueue[key]);
+        delete this.msgqueue[key]; // successfully delivered!
+        if (remove) return; // no need to store handler at all
+      }
+    }
+    this.handlers[this.handlers_id++] = handler;
+  };
+  this.finish = function() {
+    this.killed = true;
+  };
+  this.onDataReliable = function(msg) {
+    if (this.killed) return; // drop all further messages
+    // we can be assured we're running on the main thread, here.
+    for (var key in this.handlers) {
+      var handler = this.handlers[key];
+      if (handler.matches(msg)) {
+        if (handler.fn(msg)) delete this.handlers[key];
+        return;
+      }
+    }
+    // message has no handler
+    // hold it for later, in case a handler for it turns up
+    this.msgqueue[this.msgqueue_id++] = msg;
+  };
+  var self = this;
+  this.onData = function(msg) {
+    // TODO call directly on chrome (which is sane)
+    setTimeout(function() {
+      self.onDataReliable(msg);
+    }, 0);
+  };
+}
+
+/** @constructor */
 function RenderWorkset(connection) {
   this.workers = [];
   
@@ -454,31 +513,19 @@ function RenderWorkset(connection) {
     self.listAllPeersDelayed(function(recheckPeers, setPeerHandler) {
       var maybeSpawnNewConnections = null;
       
-      connect = function(id) {
+      var connect = function(id) {
         // log_id(id, "attempt to connect");
         var con = peer.connect(id);
         
         var firstExchangeOnConnection = true;
         
-        var tasksInFlight = [];
-        var markNotInFlight = function(task) {
-          // remove from inflight list
-          for (var i = 0; i < tasksInFlight.length; ++i) {
-            if (tasksInFlight[i] === task) {
-              tasksInFlight[i] = null;
-              break;
-            }
-          }
-          while (tasksInFlight.length && tasksInFlight[0] == null) {
-            tasksInFlight.shift();
-          }
-        };
+        var tasksInFlight = Object.create(null);
         
         var failTask = function(task) {
           if (task.state != 'accepted') throw ("failTask: invalid state transition: '"+task.state+"' to 'failed'");
           task.state = 'failed';
           self.progress_ui.onTaskAborted(task);
-          markNotInFlight(task);
+          delete tasksInFlight[task.id];
         };
         
         var reenqueueTask = function(task) {
@@ -486,7 +533,7 @@ function RenderWorkset(connection) {
           if (task.state != 'asking' && task.state != 'accepted') throw ("reenqueueTask: invalid state transition: '"+task.state+"' to 'queued'");
           task.state = 'queued';
           task.assigned_to = null;
-          markNotInFlight(task);
+          delete tasksInFlight[task.id];
         };
         
         var finishTask = function(task, timer, resultInfo) {
@@ -498,32 +545,49 @@ function RenderWorkset(connection) {
           self.cost_estimate_seconds += timer.elapsed() / 1000;
           self.cost_estimate_pixels += (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from);
           // log("done: "+timer.elapsed()+" for "+(msg.x_to - msg.x_from) * (msg.y_to - msg.y_from));
-          markNotInFlight(task);
+          delete tasksInFlight[task.id];
         };
         
         var con_control_timer = null;
         
+        var exchanges = {};
+        
+        var dispatch = new MessageDispatcher();
+        con.on('data', dispatch.onData);
+        
         var finish = function(reason) {
-          return function() {
+          var finish_fn = function() {
+            dispatch.finish();
+            for (var key in exchanges) {
+              exchanges[key].timer.kill();
+              delete exchanges[key];
+            }
             clearInterval(con_control_timer);
             // log_id(id, "finish:", reason, ",", JSON.stringify(Array.prototype.slice.call(arguments)));
-            for (var i = 0; i < tasksInFlight.length; ++i) {
-              var task = tasksInFlight[i];
-              if (!task) continue;
+            log(id, "removing connection because", reason);
+            for (var key in tasksInFlight) {
+              var task = tasksInFlight[key];
+              if (task.assigned_to && task.assigned_to != id) {
+                throw "why are we seeing a task from another connection?";
+              }
               reenqueueTask(task);
-              // log_id(id, "task", channel, "reset due to connection loss");
             }
-            log("remove connection "+id+" because "+reason);
+            if (Object.keys(tasksInFlight).length > 0) throw "internal error - tasks left in queue";
+            
             self.progress_ui.onCloseConnection(id);
             delete self.connections[id];
             maybeSpawnNewConnections();
           };
+          return function() {
+            // run on the main thread
+            setTimeout(finish_fn, 0);
+          };
         };
         
         con.on('open', function() {
-          var exchanges = {};
           var channel_counter = 0;
-        
+          
+          
           var startExchange = function() {
             var channel = channel_counter ++;
             // log(id, "start new exchange on channel", channel);
@@ -549,9 +613,12 @@ function RenderWorkset(connection) {
           
           var exchange = function(channel) {
             var advance = function() {
-              if (!exchanges.hasOwnProperty(channel)) return; // we are already dead.
-              exchanges[channel].timer.reset(); // something happened! reset the timeout
-              exchanges[channel].next = exchanges[channel].next();
+              // async sync point
+              setTimeout(function() {
+                if (!exchanges.hasOwnProperty(channel)) return; // we have been killed in the interim
+                exchanges[channel].timer.reset(); // something happened! reset the timeout
+                exchanges[channel].next = exchanges[channel].next();
+              }, 0);
             };
             
             var cleanup = function () {
@@ -566,14 +633,10 @@ function RenderWorkset(connection) {
               var from = time();
               var to = null;
               con.send({kind: "ping", channel: channel});
-              con.dynamic('data', function(remove, msg) {
-                if (msg.channel != channel || !exchanges.hasOwnProperty(channel)) return;
-                
-                if (msg.kind == 'pong') {
-                  to = time();
-                  remove();
-                  advance();
-                } else throw ("1 unexpected kind "+msg.kind+" on "+channel);
+              dispatch.waitMsg(channel, 'pong', function(msg) {
+                to = time();
+                advance();
+                return true;
               });
               return function() { return cps(to - from); }; // yield; return to - from;
             };
@@ -581,67 +644,46 @@ function RenderWorkset(connection) {
             var get_label = function(cps) {
               con.send({kind: "whoareyou", channel: channel});
               var res = null;
-              con.dynamic('data', function(remove, msg) {
-                if (msg.channel != channel || !exchanges.hasOwnProperty(channel)) return;
-                if (msg.kind != 'iamcalled') throw ("1.1 unexpected kind "+msg.kind);
+              dispatch.waitMsg(channel, 'iamcalled', function(msg) {
                 res = msg.label;
-                remove();
                 advance();
+                return true;
               });
               return function() { return cps(res); }; // yield; return res;
             };
             
             var taskAccepted = function(task, cps) {
               var result = null;
-              var reactTaskAccepted = function(remove, msg) {
-                if (msg.channel != channel || !exchanges.hasOwnProperty(channel)) return;
-                
-                remove();
+              var reactTaskAccepted = function(msg) {
+                // log(msg.kind, "on", id+"/"+channel);
                 if (msg.kind == 'accepted') {
-                  // log_id(id, "task on", msg.channel, "has been accepted.");
-                  // log(id, "task on", msg.channel, "has been accepted.");
-                  if (task.state != 'asking') throw ("taskAccepted: invalid state transition: '"+task.state+"' to 'accepted'");
-                  task.state = 'accepted';
-                  task.assigned_to = id;
-                  // self.progress_ui.onTaskAccepted(task);
                   result = true;
                   advance();
                 } else if (msg.kind == 'rejected') {
-                  // log_id(id, "task", channel, "rejected:", msg.reason);
-                  // log(id, "task", channel, "rejected:", msg.reason);
-                  reenqueueTask(task);
                   result = false;
                   advance();
                 } else throw ("2 unexpected kind "+msg.kind);
+                return true;
               };
+              
               if (task.state != 'processing') throw ("taskAccepted: invalid state transition: '"+task.state+"' to 'asking'");
               task.state = 'asking';
-              tasksInFlight.push(task);
+              tasksInFlight[task.id] = task;
               
-              con.dynamic('data', reactTaskAccepted);
+              dispatch.waitMsg(channel, /accepted|rejected/, reactTaskAccepted);
               
               con.send({kind: 'task', message: task.message, channel: channel});
               return function() { return cps(result); }; // yield; return result;
             };
             
             var waitTaskDone = function(task, cps) {
-              var reactTaskDone = function(remove, msg) {
-                if (msg.channel != channel || !exchanges.hasOwnProperty(channel)) return;
-                if (msg.kind == 'done') {
-                  remove();
+              var res = null;
+              var reactTaskDone = function(msg) {
+                // log(msg.kind, "on", id+"/"+channel);
+                if (msg.kind == 'done' || msg.kind == 'error') {
+                  res = msg;
                   advance();
-                } else if (msg.kind == 'error') {
-                  // late rejection
-                  if (msg.fatal) {
-                    log(id, ": task", channel, "failed:", msg.fatal, msg.error, "(3)");
-                    failTask(task);
-                  } else {
-                    // log(id, ": task", channel, "kicked from queue, was", task.state);
-                    reenqueueTask(task); // recoverable, like queue kicks
-                  }
-                  cleanup();
-                  remove();
-                  // don't bother reentering this exchange
+                  return true;
                 } else if (msg.kind == 'progress') {
                   var frac = +msg.value;
                   task.progress = frac;
@@ -654,36 +696,26 @@ function RenderWorkset(connection) {
                     self.progress_ui.onTaskAccepted(task);
                   }
                   self.progress_ui.onTaskProgressed(task);
-                } else throw ("3 unexpected kind "+msg.kind);
+                  return false;
+                } else throw ("3 unexpected kind "+msg.kind+" on "+id+"/"+channel);
               };
-              con.dynamic('data', reactTaskDone);
-              return cps; // yield
+              dispatch.waitMsg(channel, /done|error|progress/, reactTaskDone);
+              return function() { return cps(res); }; // yield
             };
             
             var waitTaskResultReceived = function(task, cps) {
               var data = null;
-              var reactTaskResultReceived = function(remove, msg) {
-                if (msg.channel != channel || !exchanges.hasOwnProperty(channel)) return;
-                
+              var reactTaskResultReceived = function(msg) {
                 if (msg.kind == 'result') {
                   data = new Uint8Array(msg.data);
                   // log_id(id, "task", channel, "received data", data.length);
-                  remove();
                   advance();
+                  return true;
                 } else if (msg.kind == 'error') {
-                  // very late rejection
-                  log(id, ": task", channel, "failed:", msg.error, "(4)");
-                  if (msg.fatal) {
-                    failTask(task);
-                  } else {
-                    reenqueueTask(task); // recoverable
-                  }
-                  cleanup();
-                  remove();
-                  // don't bother reentering
+                  throw "This was not supposed to be possible.";
                 } else throw ("4 unexpected kind "+msg.kind);
               };
-              con.dynamic('data', reactTaskResultReceived);
+              dispatch.waitMsg(channel, /result|error/, reactTaskResultReceived);
               return function() { return cps(data); };
             };
             
@@ -763,6 +795,7 @@ function RenderWorkset(connection) {
                   }
                   
                   exchanges[channel].task = task;
+                  task.channel = channel;
                   
                   // log(id, "submit task", channel, ":", task.message.x_from, task.message.y_from);
                   // log_id(id, "task", channel, "submitting");
@@ -770,12 +803,21 @@ function RenderWorkset(connection) {
                   var if_task_accepted_body = function(cps) {
                     return taskAccepted(task, function(accepted) {
                       if (accepted) {
+                        // log_id(id, "task on", msg.channel, "has been accepted.");
+                        // log(id, "task on", msg.channel, "has been accepted.");
+                        if (task.state != 'asking') throw ("taskAccepted: invalid state transition: '"+task.state+"' to 'accepted'");
+                        task.state = 'accepted';
+                        task.assigned_to = id;
+                        // self.progress_ui.onTaskAccepted(task);
                         self.onTaskStart(task.message);
                         // maybe this peer has more threads free?
                         // start a new exchange
                         startExchange();
                         return cps();
                       } else {
+                        // log_id(id, "task", channel, "rejected:", msg.reason);
+                        // log(id, "task", channel, "rejected:", msg.reason);
+                        reenqueueTask(task);
                         cleanup();
                         return null;
                       }
@@ -783,7 +825,20 @@ function RenderWorkset(connection) {
                   };
                   
                   return if_task_accepted_body(function() {
-                    return waitTaskDone(task, function() {
+                    return waitTaskDone(task, function(msg) {
+                      if (msg.kind == 'error') {
+                        // late rejection
+                        if (msg.fatal) {
+                          log(id, ": task", channel, "failed:", msg.fatal, msg.error, "(3)");
+                          failTask(task);
+                        } else {
+                          // log(id, ": task", channel, "kicked from queue, was", task.state);
+                          reenqueueTask(task); // recoverable, like queue kicks
+                        }
+                        cleanup();
+                        return;
+                      }
+                      
                       // maybe peer has more threads free now!! :o
                       // nag it some more
                       startExchange();
