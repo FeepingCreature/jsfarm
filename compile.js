@@ -708,17 +708,23 @@ function Parser(text, fulltext_or_rowbase) {
   this.text = text;
   this.fulltext = fulltext;
   this.rowbase = rowbase;
+  
+  this.fulltext_lines = this.fulltext.split("\n");
+  
   this.clean = function() {
     // eat leading space or comments
     this.text = this.text.replace(/^(\s+|;[^\n]*\n)+/g, '');
   };
   this.getLocation = function(text) {
-    var fulltext_lines = this.fulltext.split("\n");
-    var left_lines = text.split("\n");
-    var line = fulltext_lines.length - left_lines.length;
-    var full_line = fulltext_lines[line];
+    var left_lines = text.split("\n");  // TODO figure out a way to make faster??
+    var line = this.fulltext_lines.length - left_lines.length;
+    var full_line = this.fulltext_lines[line];
     var column = full_line.length - left_lines[0].length;
     return {row: line + this.rowbase, column: column};
+  };
+  this.getLineBefore = function(text) {
+    var loc = this.getLocation(text);
+    return this.fulltext_lines[loc.row - this.rowbase].slice(0, loc.column);
   };
   this.fail = function(info) {
     var where = this.getLocation(this.text);
@@ -762,10 +768,35 @@ function Parser(text, fulltext_or_rowbase) {
   };
 }
 
-function sexpr_parse(context, parser) {
+/** @constructor */
+function IndentChecker() {
+  this.depth = 0;
+  this.leads = {};
+  this.checkOpen = function(text_at, parser, failHere) {
+    var linehead = parser.getLineBefore(text_at);
+    if (/^\s*$/.test(linehead)) {
+      if (this.leads.hasOwnProperty(this.depth)) {
+        var lead = this.leads[this.depth];
+        if (lead.length != linehead.length) {
+          failHere("Wrong indentation: At col "+linehead.length+" but previous col was "+lead.length+"! Did you forget to close a bracket?");
+        }
+      } else {
+        this.leads[this.depth] = linehead;
+      }
+    }
+  };
+  this.open = function() { this.depth++; };
+  this.close = function() { delete this.leads[this.depth]; this.depth--; };
+}
+
+function sexpr_parse(context, parser, indentchecker) {
+  if (typeof indentchecker == "undefined") indentchecker = new IndentChecker;
+  
   var thing = {};
+  
+  parser.clean(); // remove detritus for text_at
   var text_at = parser.text;
-  var text_post = null;
+  var text_post = text_at;
   function failHere(info) {
     var loc1 = parser.getLocation(text_at);
     var loc2 = parser.getLocation(text_post);
@@ -813,11 +844,15 @@ function sexpr_parse(context, parser) {
   }
   
   if (parser.accept("(")) {
+    text_post = parser.text;
+    indentchecker.checkOpen(text_at, parser, failHere);
+    indentchecker.open();
     var sexpr = [];
     while (true) {
       if (parser.accept(")")) break;
-      sexpr.push(sexpr_parse(context, parser));
+      sexpr.push(sexpr_parse(context, parser, indentchecker));
     }
+    indentchecker.close();
     text_post = parser.text;
     return makething({kind: "list", value: sexpr});
   }
