@@ -32,7 +32,6 @@ function TimeoutTimer(timeout_delta, onTimeout) {
     if (this.hasOwnProperty("timeout_id") && this.timeout_id) {
       clearTimeout(this.timeout_id);
     }
-    return this;
   };
   // time since run()
   this.elapsed = function() {

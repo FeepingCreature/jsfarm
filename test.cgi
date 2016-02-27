@@ -42,6 +42,7 @@ cat <<'EOT'
 <script src="lib/codemirror.js"></script>
 <script src="mode/scheme/scheme.js"></script>
 <script src="addon/edit/matchbrackets.js"></script>
+<script src="addon/edit/closebrackets.js"></script>
 <script src="addon/selection/mark-selection.js"></script>
 
 <script src="imgur_canvas.js"></script>
@@ -116,7 +117,7 @@ cat <<'EOT'
   <ul class="nav nav-tabs" role="tablist">
     <li role="presentation" class="active"><a href="#image-pane" aria-controls="image-pane" role="tab" data-toggle="tab" id="image-tab">Render</a></li>
     <li role="presentation"><a href="#progress-pane" aria-controls="progress-pane" role="tab" data-toggle="tab" id="progress-tab">Progress</a></li>
-    <li role="presentation" class="label" id="QuickProgInfo"></li>
+    <li role="presentation" class="label label-outside" id="QuickProgInfo"></li>
   </ul>
 
   <div class="tab-content" style="position:relative;">
@@ -149,6 +150,8 @@ cat <<'EOT'
     lineNumbers: true,
     mode: "scheme",
     matchBrackets: true,
+    autoCloseBrackets: true,
+    indentUnit: 2,
     gutters: ["error-gutter"],
 EOT
 echo "    theme: \"$CMTHEME\""

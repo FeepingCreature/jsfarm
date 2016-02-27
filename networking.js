@@ -3,7 +3,7 @@ function setStatus(msg) {
 }
 
 function log_id(id) {
-  var msg = Array.prototype.slice.call(arguments).slice(1).join(" ");
+  var msg = Array.prototype.slice.call(arguments, 1).join(" ");
   var div_id = "div_for_"+id;
   var target = document.getElementById(div_id);
   if (target) {
