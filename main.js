@@ -21,7 +21,9 @@ function bootstrap_progbar() {
 // shared helper
 function logJq(jq) {
   if (typeof window !== 'undefined') {
-    $('#console').append(jq);
+    var console = $('#console');
+    console.append(jq);
+    console.scrollTop(1<<30);
   }
 }
 

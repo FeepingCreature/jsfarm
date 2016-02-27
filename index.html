@@ -1,39 +1,12 @@
-#!/bin/sh
-set -e
-DFL_TARGET="$SERVER_NAME:$SERVER_PORT/jsfarm"
-echo Content-Type: text/html
-echo ""
-cat <<'EOT'
 <!DOCTYPE html>
 <html>
 <head>
 <title>canvas tests</title>
 <meta charset="utf-8">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
-<meta name="viewport" content="width=device-width, initial-scale=1"><!-- Latest compiled and minified CSS -->
-
-<link rel="stylesheet" href="css/bootstrap.min.css">
-<!-- Optional theme -->
-EOT
-THEME="css/bootstrap-theme.min.css"
-CMTHEME="neat"
-MYTHEME="site-light"
-if [ "$QUERY_STRING" = "dark" ]
-then
-  THEME="css/bootstrap-cyborg.min.css"
-  CMTHEME="lesser-dark"
-  MYTHEME="site-dark"
-fi
-echo "<link rel=\"stylesheet\" href=\"$THEME\">"
-echo "<link rel=\"stylesheet\" href=\"css/$CMTHEME.css\">"
-echo "<link rel=\"stylesheet\" href=\"$MYTHEME.css\">"
-cat <<'EOT'
-<link rel="stylesheet" href="css/site.css">
-<link rel="stylesheet" href="addon/lint/lint.css">
-<link rel="stylesheet" href="lib/codemirror.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
 <script src="jquery.min.js"></script> 
-<!-- Latest compiled and minified JavaScript -->
 <script src="bootstrap.min.js"></script>
 
 <script src="jquery.color-2.1.0.min.js"></script>
@@ -79,11 +52,7 @@ cat <<'EOT'
       <div class="panel panel-primary no-margin">
         <div class="panel-body small-panel">
           <label for="target" title="Address of the discovery server (PeerServer)">Server</label>
-EOT
-cat <<EOT
-          <input type="text" id="target" name="target" size="25" value="$DFL_TARGET" oninput="CheckTarget();">
-EOT
-cat <<'EOT'
+          <input type="text" id="target" name="target" size="25" value="" oninput="CheckTarget();">
           <label for="threads" title="Number of background threads. Default: 2">Threads</label>
           <input type="text" size="1" id="threads" name="threads" value="2" oninput="SaveSettings()">
           <label for="ident" title="Label used for this computer. Defaults to connection id.">Label</label>
@@ -101,12 +70,84 @@ cat <<'EOT'
 <ul id="riders" class="nav nav-tabs">
 </ul>
 <span id="editors_content" class="tab-content">
-EOT
-# make sure we start without an empty newline
-echo -n '<textarea id="editor">'
-cat scene.s2
-cat <<'EOT'
-</textarea>
+<textarea id="editor">(lambda (x y res) (seq))
+; @file prelude
+
+(def qmap (lambda (list)
+  (if (= (size list) 0)
+    list
+    (cons (quasicode (first list)) (qmap (rest list))))))
+
+(def quasicode (lambda (arg)
+  (if (not (list? arg)) (quote arg)
+    (if (same (first arg) 'unquote)
+      (first1 (rest arg))
+      (cons 'list (qmap arg))))))
+
+(def quasiquote (macro (arg)
+  (quasicode arg)))
+
+(def and (macro (a b) `(if ,a (if ,b true false) false)))
+
+(def or (macro (a b) `(if ,a true (if ,b true false))))
+
+(def quotelist (lambda (list)
+  (if (= (size list) 0)
+    list
+    (cons (quote (first list)) (quotelist (rest list))))))
+
+(def let_fun (lambda (args)
+  ; TODO error cases for (= size 0)
+  (if (= (size args) 1)
+    (first1 args) ; plain body
+    (list
+      'let1
+      (first args)
+      (let_fun (rest args))))))
+
+
+(def let (macro (...)
+  (let_fun ...)))
+
+(def require (macro (...) (cons '_require (quotelist ...))))
+(def : (macro (base ...) (cons '_element (cons base (quotelist ...)))))
+
+; non-recursive to avoid browser erroring out due to stack overflow
+(def slice (lambda (from to args) (let
+  (from' from) (to' to) (args' args)
+  (res '())
+  (seq
+    (while (or (> from 0) (> to 0))
+      (if (> from 0)
+        (seq
+          (set from (- from 1))
+          (set to (- to 1))
+          (set args (rest args)))
+        (seq
+          (set res (cons (first args) res))
+          (set to (- to 1))
+          (set args (rest args)))))
+    res))))
+
+(def for (macro (var from to body)
+  `(seq
+    (let (,var ,from)
+      (while (< ,var ,to) (let
+        (_for_res ,body)
+        (seq
+          (set ,var (+ ,var 1))
+          _for_res)))))))
+
+; TODO vectors?
+(def min (lambda (a b)
+  (if (< a b) a b)))
+
+(def max (lambda (a b)
+  (if (> a b) a b)))
+
+(def sum (lambda (vec) (+ (: vec x) (: vec y) (: vec z))))
+(def length (lambda (vec) (sqrt (sum (* vec vec)))))
+</textarea
 </span>
 </div>
 
@@ -138,14 +179,6 @@ cat <<'EOT'
 </td></tr></table>
 
 <script>
-  setupCanvasUpload($('#canvas'));
-  
-  $('#result_area > .nav-tabs a').click(function (e) {
-    e.preventDefault();
-    $(this).tab('show');
-  });
-  
-  LoadSettings();
   var editor_cfg = {
     lineNumbers: true,
     mode: "scheme",
@@ -164,10 +197,79 @@ cat <<'EOT'
         $('#quality').val(($('#quality').val()|0) / 2);
       },
     },
-EOT
-echo "    theme: \"$CMTHEME\""
-cat <<'EOT'
   };
+  
+  var css_default_before = [
+    'css/bootstrap.min.css',
+    'addon/lint/lint.css',
+    'lib/codemirror.css',
+  ];
+  
+  var css_default_after = [
+    'css/site.css',
+  ];
+  
+  var themes = {
+    'light': {
+      editor_theme: 'neat',
+      css: [
+        'css/bootstrap-theme.min.css',
+        'css/neat.css',
+        'site-light.css',
+      ]
+    },
+    'dark': {
+      editor_theme: 'lesser-dark',
+      css: [
+        'css/bootstrap-cyborg.min.css',
+        'css/lesser-dark.css',
+        'site-dark.css',
+      ]
+    },
+  };
+  
+  function loadCss(url) {
+    var link = document.createElement("link");
+    link.href = url;
+    link.type = "text/css";
+    link.rel = "stylesheet";
+    link.className = "theme";
+    $('meta').add('link.theme').last().after(link);
+  }
+  function loadTheme(theme) {
+    $('link.theme').remove();
+    var theme = themes[theme];
+    for (var i = 0; i < css_default_before.length; i++) {
+      loadCss(css_default_before[i]);
+    }
+    for (var i = 0; i < theme.css.length; i++) {
+      loadCss(theme.css[i]);
+    }
+    for (var i = 0; i < css_default_after.length; i++) {
+      loadCss(css_default_after[i]);
+    }
+    editor_cfg.theme = theme.editor_theme;
+  }
+  
+  var theme = Cookies.get('theme');
+  if (!theme || !themes.hasOwnProperty(theme)) theme = 'light';
+  loadTheme(theme);
+  
+  function setTheme(theme) {
+    Cookies.set('theme', theme);
+    loadTheme(theme);
+  }
+  
+  $('#target')[0].defaultValue = location.host+"/jsfarm";
+  
+  setupCanvasUpload($('#canvas'));
+  
+  $('#result_area > .nav-tabs a').click(function (e) {
+    e.preventDefault();
+    $(this).tab('show');
+  });
+  
+  LoadSettings();
   
   /** @constructor */
   function EditorUi() {
@@ -437,8 +539,11 @@ cat <<'EOT'
 <hr class="semisane">
 <p>Console</p>
 <div style="clear:both;"></div>
-<div style="border:1px solid; min-height: 10pt;" id="console">
+<div style="border:1px solid; min-height: 10pt; height: 100px; overflow-y: scroll;" id="console">
 </div>
+
+<center><span class="ajaxLink" onclick="setTheme('light');">[light]</span>&nbsp;<span class="ajaxLink" onclick="setTheme('dark');">[dark]</span></center>
+
 </div>
 
 <div class="modal" id="SiteLoadingModal" tabindex="-1" role="dialog">
@@ -453,4 +558,3 @@ cat <<'EOT'
 </div>
 </body>
 </html>
-EOT
