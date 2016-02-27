@@ -683,7 +683,7 @@ function RenderWorkset(connection) {
               var res = null;
               var reactTaskDone = function(msg) {
                 // log(msg.kind, "on", id+"/"+channel);
-                if (msg.kind == 'done' || msg.kind == 'failed') {
+                if (msg.kind == 'done' || msg.kind == 'error') {
                   res = msg;
                   advance();
                   return true;

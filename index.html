@@ -439,8 +439,11 @@
         toAdd.push(newfile);
         targetlist.push(newfile);
       } else {
-        file.src = newfile.src;
-        file.editor.setValue(file.src);
+        var editor_changed = file.src != newfile.src;
+        if (editor_changed) {
+          file.src = newfile.src;
+          file.editor.setValue(file.src);
+        }
         file.rowbase = newfile.rowbase;
         targetlist.push(file);
       }
