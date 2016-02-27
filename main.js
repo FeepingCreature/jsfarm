@@ -219,7 +219,7 @@ function next_pot(n) {
   return n;
 }
 
-function renderScene() {
+function RenderScene() {
   $(window).trigger("startRender");
   
   $('#console').empty();
@@ -298,9 +298,15 @@ function renderScene() {
   */
   
   if (!window.connection) return;
+  
   var workset = new RenderWorkset(window.connection);
   
+  window.workset = workset;
+  
   logHtml('Processing.');
+  
+  $('#RenderButton').hide();
+  $('#CancelButton').show();
   
   var dw = canvas.width, dh = canvas.height;
   
@@ -337,6 +343,8 @@ function renderScene() {
   workset.onTaskProgress = function(task, frac) {
   };
   
+  workset.onDone = CancelRender;
+  
   var extent = Math.max(next_pot(dw), next_pot(dh));
   var task = new Range(0, 0, extent, extent);
   workset.addTask(task);
@@ -346,4 +354,27 @@ function renderScene() {
   workset.shuffle();
   
   workset.run();
+}
+
+function CancelRender() {
+  window.workset.cancel();
+  delete window.workset;
+  $('#CancelButton').hide();
+  $('#RenderButton').show();
+}
+
+function RenderOrCancel() {
+  if (window.hasOwnProperty('workset')) CancelRender();
+  else RenderScene();
+}
+
+function Connect() {
+  window.connection = new ServerConnection;
+  window.connection.connect();
+}
+
+function Disconnect() {
+  if (window.hasOwnProperty('workset')) CancelRender();
+  window.connection.disconnect();
+  window.connection = null;
 }

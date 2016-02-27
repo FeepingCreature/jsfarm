@@ -446,7 +446,7 @@ function RenderWorkset(connection) {
   this.peerinfo = {};
   
   this.connection_limit = 10;
-  this.connections = {};
+  this.connections = Object.create(null);
   this.id = null;
   
   this.connection = connection;
@@ -461,6 +461,7 @@ function RenderWorkset(connection) {
   this.cost_estimate_seconds = 1;
   this.cost_estimate_pixels = 0;
   this.task_defaults = {};
+  this.killed = false;
   
   this.listAllPeersDelayed = function(fn) {
     var self = this;
@@ -526,6 +527,7 @@ function RenderWorkset(connection) {
           task.state = 'failed';
           self.progress_ui.onTaskAborted(task);
           delete tasksInFlight[task.id];
+          self.checkAreWeDone();
         };
         
         var reenqueueTask = function(task) {
@@ -546,6 +548,7 @@ function RenderWorkset(connection) {
           self.cost_estimate_pixels += (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from);
           // log("done: "+timer.elapsed()+" for "+(msg.x_to - msg.x_from) * (msg.y_to - msg.y_from));
           delete tasksInFlight[task.id];
+          self.checkAreWeDone();
         };
         
         var con_control_timer = null;
@@ -680,7 +683,7 @@ function RenderWorkset(connection) {
               var res = null;
               var reactTaskDone = function(msg) {
                 // log(msg.kind, "on", id+"/"+channel);
-                if (msg.kind == 'done' || msg.kind == 'error') {
+                if (msg.kind == 'done' || msg.kind == 'failed') {
                   res = msg;
                   advance();
                   return true;
@@ -868,7 +871,7 @@ function RenderWorkset(connection) {
           // this prevents us from getting stuck if we get rejected on all fronts, for instance
           
           con_control_timer = setInterval(function() {
-            if (self.gotUnfinishedTasks()) {
+            if (!self.done()) {
               startExchange();
             } else {
               con.close(); // work is done, shut down.
@@ -907,8 +910,7 @@ function RenderWorkset(connection) {
       // check regularly (maybeSpawn will naturally bail if we're at the limit)
       var newConnections_timer;
       var openNewConnectionsPeriodically = function() {
-        // TODO self.done()
-        if (!self.gotUnfinishedTasks()) {
+        if (self.done()) {
           clearInterval(newConnections_timer);
           return;
         }
@@ -919,8 +921,7 @@ function RenderWorkset(connection) {
       
       var recheck_timer;
       var recheckPeersPeriodically = function() {
-        // TODO self.done()
-        if (!self.gotUnfinishedTasks()) {
+        if (self.done()) {
           clearInterval(recheck_timer);
           return;
         }
@@ -946,13 +947,11 @@ function RenderWorkset(connection) {
     }
   };
   this.cancel = function() {
-    this.tasks.length = 0;
-    this.peerlist.length = 0;
-    this.peerlist_last_updated = null;
-    for (var key in this.connections) if (this.connections.hasOwnProperty(key)) {
+    for (var key in this.connections) {
       this.connections[key].close();
       delete this.connections[key];
     }
+    this.killed = true;
   };
   this.run = function() {
     this.progress_ui.reset();
@@ -1035,18 +1034,16 @@ function RenderWorkset(connection) {
   };
   this.gotUnfinishedTasks = function() {
     for (var i = 0; i < this.tasks.length; ++i) {
-      if (this.tasks[i].state != 'done') return true;
+      if (this.tasks[i].state != 'done' && this.tasks[i].state != 'error') return true;
     }
     return false;
   };
-}
-
-function Connect() {
-  window.connection = new ServerConnection;
-  window.connection.connect();
-}
-
-function Disconnect() {
-  window.connection.disconnect();
-  window.connection = null;
+  this.done = function() {
+    return this.killed || !this.gotUnfinishedTasks();
+  };
+  this.checkAreWeDone = function() {
+    if (this.done() && this.hasOwnProperty('onDone')) {
+      this.onDone();
+    };
+  };
 }

@@ -409,9 +409,8 @@ cat <<'EOT'
   };
 </script>
 
-<hr>
-
-<button type="button" id="RunButton" onclick="renderScene()">Run</button>
+<button type="button" id="RenderButton" onclick="RenderScene()">Render</button>
+<button type="button" id="CancelButton" onclick="CancelRender()" class="starts-hidden">Cancel</button>
 <script>
   $(function() {
     LoadStateFromAnchor(function() {
@@ -420,7 +419,7 @@ cat <<'EOT'
         editor.files = splitSrc($('#editor')[0].value);
         editor.rebuildFileUi(editor.files);
       }
-      $("#RunButton").click();
+      // $("#RenderButton").click();
     });
   });
 </script>
