@@ -139,23 +139,16 @@ function WorkTask(range) {
 }
 
 /** @constructor */
-function JSFarm() {
+function ServerConnection() {
   this.workers = [];
   
-  this.tasks = [];
-  this.progress_ui = new ProgressUI(this.tasks);
+  this.peerjs = null;
   
-  this.peerlist = [];
-  this.peerlist_last_updated = null;
-  
-  this.peerinfo = {};
-  
-  this.connection_limit = 10;
-  this.connections = {};
   this.id = null;
   
-  this._openPeer = function() {
-    log("open peer");
+  this.taskqueue = new RobinQueue(0);
+  
+  this._connectPeerJs = function() {
     var address = decodeAddress($('#settings input#target').val());
     if (!address) return null;
     
@@ -171,34 +164,6 @@ function JSFarm() {
     
     return new Peer(null, settings);
   };
-  this.connect = function() {
-    var self = this;
-    
-    var peer = self._openPeer();
-    if (!peer) return;
-    
-    self.peer = peer;
-    
-    setStatus("Status: connecting");
-    
-    peer.on('connection', self.handleIncomingConnection.bind(self));
-    peer.on('open', function(id) {
-      setStatus("Status: connected as "+id);
-      self.id = id;
-      window.onbeforeunload = Disconnect;
-      
-      // sanity limit
-      var threads = Math.min(36, document.getElementById('threads').value|0);
-      
-      self.startWorkers(threads);
-      self.taskqueue.limit = threads;
-    });
-    $('#WorkerInfo').show().css('display', 'inline-block');
-    
-    $('#ConnectButton').hide();
-    $('#DisconnectButton').show();
-  };
-  this.taskqueue = new RobinQueue(0);
   this.checkQueue = function() {
     var self = this;
     
@@ -290,6 +255,154 @@ function JSFarm() {
     con.on('data', handleLabel);
     con.on('data', handleTask);
   };
+  this._startWorker = function(marker, index) {
+    var self = this;
+    var worker = new Worker('pool.js');
+    
+    var workerWrapper = {
+      state: '',
+      worker: worker,
+      worker_timeout_timer: null,
+      onTimeout: function() {
+        // clean up
+        this.worker.terminate();
+        if (this.hasOwnProperty('onError')) {
+          this.onError("Timeout: computation exceeded 30s", false);
+        }
+        // and restart
+        self._startWorker(marker, index);
+      },
+      setState: function(state) {
+        if (state == 'busy') {
+          if (this.state != 'idle') throw ("invalid state transition from '"+this.state+"' to 'busy'");
+          this.state = 'busy';
+          marker.css('background-color', 'yellow');
+          this.worker_timeout_timer = new TimeoutTimer(30000, this.onTimeout.bind(this));
+        } else if (state == 'idle') {
+          if (this.state != 'busy' && this.state != '') {
+            throw ("invalid state transition from '"+this.state+"' to 'idle'");
+          }
+          this.state = 'idle';
+          if (this.worker_timeout_timer) this.worker_timeout_timer.kill();
+          marker.css('background-color', 'lightgreen');
+        } else throw ('unknown worker state '+state);
+      },
+      giveWork: function(msg) {
+        this.setState('busy');
+        this.worker.postMessage(msg);
+      }
+    };
+    
+    workerWrapper.setState('idle');
+    
+    var busy = false; // hahahahahha this is so dirty. so. dirty.
+    
+    worker.addEventListener('message', function(e) {
+      var msg = e.data;
+      if (msg.kind == 'finish') {
+        workerWrapper.setState('idle');
+        if (workerWrapper.hasOwnProperty('onComplete')) {
+          workerWrapper.onComplete(msg.data);
+        }
+      } else if (msg.kind == 'error') {
+        workerWrapper.setState('idle');
+        if (workerWrapper.hasOwnProperty('onError')) {
+          workerWrapper.onError(msg.error, true);
+        }
+      } else if (msg.kind == "progress") {
+        if (workerWrapper.hasOwnProperty('onProgress')) {
+          workerWrapper.onProgress(msg.progress);
+        }
+      } else if (msg.kind == "alert") {
+        if (!busy) { // otherwise just drop it, it's not that important, we get lots
+          busy = true; // THREAD SAFETY L O L
+          alert(msg.message); // TODO only if self-connection
+          busy = false;
+        }
+      } else if (msg.kind == "log") {
+        log(msg.message); // TODO only if self-connection
+      } else throw ("what is "+msg.kind);
+    });
+    
+    this.workers[index] = workerWrapper;
+  }
+  this.startWorkers = function(threads) {
+    for (var i = 0; i < threads; ++i) {
+      var marker = $('<div class="worker-marker"></div>');
+      $('#WorkerInfo .workerlist').append(marker);
+      this._startWorker(marker, this.workers.length);
+    }
+  };
+  this.connect = function() {
+    var self = this;
+    
+    self.peerjs = self._connectPeerJs();
+    if (!self.peerjs) return;
+    
+    setStatus("Status: connecting");
+    
+    self.peerjs.on('connection', self.handleIncomingConnection.bind(self));
+    self.peerjs.on('open', function(id) {
+      setStatus("Status: connected as "+id);
+      self.id = id;
+      window.onbeforeunload = Disconnect;
+      
+      // sanity limit
+      var threads = Math.min(36, document.getElementById('threads').value|0);
+      
+      self.startWorkers(threads);
+      self.taskqueue.limit = threads;
+    });
+    $('#WorkerInfo').show().css('display', 'inline-block');
+    
+    $('#ConnectButton').hide();
+    $('#DisconnectButton').show();
+  };
+  this.disconnect = function() {
+    while (this.workers.length) {
+      this.workers.pop().worker.terminate();
+    }
+    $('#WorkerInfo').hide();
+    $('#WorkerInfo .workerlist').empty();
+    
+    this.peerjs.destroy();
+    this.id = null;
+    
+    $('#DisconnectButton').hide();
+    $('#ConnectButton').show();
+    setStatus("Status: not running");
+  };
+};
+
+/** @constructor */
+function RenderWorkset(connection) {
+  this.workers = [];
+  
+  this.tasks = [];
+  this.progress_ui = new ProgressUI(this.tasks);
+  
+  this.peerlist = [];
+  this.peerlist_last_updated = null;
+  
+  this.peerinfo = {};
+  
+  this.connection_limit = 10;
+  this.connections = {};
+  this.id = null;
+  
+  this.connection = connection;
+  
+  // must be here, not in Connection, because we can't synchronize on cps from another Workset
+  this.peerinfo = {};
+  
+  this.onTaskAdd = null;
+  this.onTaskStart = null;
+  this.onTaskDone = null;
+  this.onTaskProgress = null;
+  this.cost_estimate_seconds = 1;
+  this.cost_estimate_pixels = 0;
+  this.task_defaults = {};
+  
   this.listAllPeersDelayed = function(fn) {
     var self = this;
     
@@ -315,7 +428,7 @@ function JSFarm() {
     
     var recheckPeers = function() {
       log("relisting peers");
-      self.peer.listAllPeers(function(peers) {
+      self.connection.peerjs.listAllPeers(function(peers) {
         peerlist = peers;
         callBackWithNewPeers();
       });
@@ -326,7 +439,7 @@ function JSFarm() {
   this.giveWorkToIdlePeers = function() {
     var self = this;
     
-    var peer = self.peer;
+    var peer = self.connection.peerjs;
     
     if (!peer) {
       log("No peer connection established!");
@@ -362,6 +475,7 @@ function JSFarm() {
         };
         
         var failTask = function(task) {
+          if (task.state != 'accepted') throw ("failTask: invalid state transition: '"+task.state+"' to 'failed'");
           task.state = 'failed';
           self.progress_ui.onTaskAborted(task);
           markNotInFlight(task);
@@ -369,6 +483,7 @@ function JSFarm() {
         
         var reenqueueTask = function(task) {
           self.progress_ui.onTaskAborted(task);
+          if (task.state != 'asking' && task.state != 'accepted') throw ("reenqueueTask: invalid state transition: '"+task.state+"' to 'queued'");
           task.state = 'queued';
           task.assigned_to = null;
           markNotInFlight(task);
@@ -376,6 +491,7 @@ function JSFarm() {
         
         var finishTask = function(task, timer, resultInfo) {
           var msg = task.message;
+          if (task.state != 'accepted') throw ("finishTask: invalid state transition: '"+task.state+"' to 'done'");
           task.state = 'done';
           self.onTaskDone(msg, resultInfo);
           self.progress_ui.onTaskCompleted(task);
@@ -484,7 +600,8 @@ function JSFarm() {
                 if (msg.kind == 'accepted') {
                   // log_id(id, "task on", msg.channel, "has been accepted.");
                   // log(id, "task on", msg.channel, "has been accepted.");
-                  task.state = 'processing';
+                  if (task.state != 'asking') throw ("taskAccepted: invalid state transition: '"+task.state+"' to 'accepted'");
+                  task.state = 'accepted';
                   task.assigned_to = id;
                   // self.progress_ui.onTaskAccepted(task);
                   result = true;
@@ -497,6 +614,7 @@ function JSFarm() {
                   advance();
                 } else throw ("2 unexpected kind "+msg.kind);
               };
+              if (task.state != 'processing') throw ("taskAccepted: invalid state transition: '"+task.state+"' to 'asking'");
               task.state = 'asking';
               tasksInFlight.push(task);
               
@@ -529,6 +647,10 @@ function JSFarm() {
                   task.progress = frac;
                   self.onTaskProgress(task.message, frac);
                   if (!task.hasOwnProperty('_progress')) {
+                    if (task.assigned_to == null) {
+                      log(id, "received progress message for unassigned task ", JSON.stringify(task));
+                      throw "this is bad.";
+                    }
                     self.progress_ui.onTaskAccepted(task);
                   }
                   self.progress_ui.onTaskProgressed(task);
@@ -768,7 +890,7 @@ function JSFarm() {
       this.tasks[i] = temp;
     }
   };
-  this.reset = function() {
+  this.cancel = function() {
     this.tasks.length = 0;
     this.peerlist.length = 0;
     this.peerlist_last_updated = null;
@@ -776,17 +898,11 @@ function JSFarm() {
       this.connections[key].close();
       delete this.connections[key];
     }
-    this.cost_estimate_seconds = 1;
-    this.cost_estimate_pixels = 0; // initially "Infinity" so we start with 1x1 subdiv
   };
   this.run = function() {
     this.progress_ui.reset();
     this.giveWorkToIdlePeers();
   };
-  this.onTaskAdd = null;
-  this.onTaskStart = null;
-  this.onTaskDone = null;
-  this.onTaskProgress = null;
   this.addTask = function(range) {
     var task = new WorkTask(range);
     if (this.onTaskAdd) this.onTaskAdd(range);
@@ -802,9 +918,6 @@ function JSFarm() {
     }
     return null;
   };
-  this.cost_estimate_seconds = 1;
-  this.cost_estimate_pixels = 0;
-  this.task_defaults = {};
   this.estimSubdivideTask = function(task) {
     var msg = task.message;
     var dw = this.task_defaults.dw, dh = this.task_defaults.dh;
@@ -840,14 +953,14 @@ function JSFarm() {
       this.tasks.push(tr);
       pushed ++;
     }
-    if (y_didsplit && task_touches_area(bl)) {
-      if (this.onTaskAdd) this.onTaskAdd(bl.message);
-      this.tasks.push(bl);
-      pushed ++;
-    }
     if (x_didsplit && y_didsplit && task_touches_area(br)) {
       if (this.onTaskAdd) this.onTaskAdd(br.message);
       this.tasks.push(br);
+      pushed ++;
+    }
+    if (y_didsplit && task_touches_area(bl)) {
+      if (this.onTaskAdd) this.onTaskAdd(bl.message);
+      this.tasks.push(bl);
       pushed ++;
     }
     this.shuffle(pushed);
@@ -857,6 +970,7 @@ function JSFarm() {
     var task = this.peekQueuedTask();
     if (task) {
       while (this.estimSubdivideTask(task)) { }
+      if (task.state != 'queued') throw ("getQueuedTask: invalid state transition: '"+task.state+"' to 'processing'");
       task.state = 'processing';
     }
     return task;
@@ -870,106 +984,14 @@ function JSFarm() {
     }
     return false;
   };
-  this._startWorker = function(marker, index) {
-    var self = this;
-    var worker = new Worker('pool.js');
-    
-    var workerWrapper = {
-      state: '',
-      worker: worker,
-      worker_timeout_timer: null,
-      onTimeout: function() {
-        // clean up
-        this.worker.terminate();
-        if (this.hasOwnProperty('onError')) {
-          this.onError("Timeout: computation exceeded 30s", false);
-        }
-        // and restart
-        self._startWorker(marker, index);
-      },
-      setState: function(state) {
-        if (state == 'busy') {
-          if (this.state != 'idle') throw ("invalid state transition from '"+this.state+"' to 'busy'");
-          this.state = 'busy';
-          marker.css('background-color', 'yellow');
-          this.worker_timeout_timer = new TimeoutTimer(30000, this.onTimeout.bind(this));
-        } else if (state == 'idle') {
-          if (this.state != 'busy' && this.state != '') {
-            throw ("invalid state transition from '"+this.state+"' to 'idle'");
-          }
-          this.state = 'idle';
-          if (this.worker_timeout_timer) this.worker_timeout_timer.kill();
-          marker.css('background-color', 'lightgreen');
-        } else throw ('unknown worker state '+state);
-      },
-      giveWork: function(msg) {
-        this.setState('busy');
-        this.worker.postMessage(msg);
-      }
-    };
-    
-    workerWrapper.setState('idle');
-    
-    var busy = false; // hahahahahha this is so dirty. so. dirty.
-    
-    worker.addEventListener('message', function(e) {
-      var msg = e.data;
-      if (msg.kind == 'finish') {
-        workerWrapper.setState('idle');
-        if (workerWrapper.hasOwnProperty('onComplete')) {
-          workerWrapper.onComplete(msg.data);
-        }
-      } else if (msg.kind == 'error') {
-        workerWrapper.setState('idle');
-        if (workerWrapper.hasOwnProperty('onError')) {
-          workerWrapper.onError(msg.error, true);
-        }
-      } else if (msg.kind == "progress") {
-        if (workerWrapper.hasOwnProperty('onProgress')) {
-          workerWrapper.onProgress(msg.progress);
-        }
-      } else if (msg.kind == "alert") {
-        if (!busy) { // otherwise just drop it, it's not that important, we get lots
-          busy = true; // THREAD SAFETY L O L
-          alert(msg.message); // TODO only if self-connection
-          busy = false;
-        }
-      } else if (msg.kind == "log") {
-        log(msg.message); // TODO only if self-connection
-      } else throw ("what is "+msg.kind);
-    });
-    
-    this.workers[index] = workerWrapper;
-  }
-  this.startWorkers = function(threads) {
-    for (var i = 0; i < threads; ++i) {
-      var marker = $('<div class="worker-marker"></div>');
-      $('#WorkerInfo .workerlist').append(marker);
-      this._startWorker(marker, this.workers.length);
-    }
-  };
-  this.disconnect = function() {
-    while (this.workers.length) {
-      this.workers.pop().worker.terminate();
-    }
-    $('#WorkerInfo').hide();
-    $('#WorkerInfo .workerlist').empty();
-    
-    this.peer.destroy();
-    this.id = null;
-    
-    $('#DisconnectButton').hide();
-    $('#ConnectButton').show();
-    setStatus("Status: not running");
-  };
 }
 
 function Connect() {
-  window.jsfarm = new JSFarm;
-  window.jsfarm.connect();
+  window.connection = new ServerConnection;
+  window.connection.connect();
 }
 
 function Disconnect() {
-  window.jsfarm.disconnect();
-  window.jsfarm = null;
+  window.connection.disconnect();
+  window.connection = null;
 }

@@ -284,22 +284,20 @@ function renderScene() {
   }
   */
   
+  if (!window.connection) return;
+  var workset = new RenderWorkset(window.connection);
+  
   logHtml('Processing.');
-  
-  var jsfarm = window.jsfarm;
-  if (!jsfarm) return;
-  
-  jsfarm.reset();
   
   var dw = canvas.width, dh = canvas.height;
   
-  jsfarm.task_defaults = {
+  workset.task_defaults = {
     source: fullsrc,
     dw: dw, dh: dh,
     quality: quality
   };
   
-  jsfarm.onTaskAdd = function(task) {
+  workset.onTaskAdd = function(task) {
     ctx.fillStyle = "rgba("+wipcolor.r+", "+wipcolor.g+", "+wipcolor.b+", 0.14)";
     ctx.fillRect(task.x_from, task.y_from, task.x_to - task.x_from, task.y_to - task.y_from);
     // work around strokeRect weirdness
@@ -308,12 +306,12 @@ function renderScene() {
     // ctx.strokeRect(task.x_from + 0.5, task.y_from + 0.5, task.x_to - task.x_from - 1, task.y_to - task.y_from - 1);
   };
   
-  jsfarm.onTaskStart = function(task) {
+  workset.onTaskStart = function(task) {
     ctx.fillStyle = "rgb("+wipcolor.r+", "+wipcolor.g+", "+wipcolor.b+")";
     ctx.fillRect(task.x_from, task.y_from, task.x_to - task.x_from, task.y_to - task.y_from);
   };
   
-  jsfarm.onTaskDone = function(task, msg) {
+  workset.onTaskDone = function(task, msg) {
     var wdata = msg.data;
     var brush = get_brush(task.x_to - task.x_from, task.y_to - task.y_from);
     var bdata = brush.data;
@@ -323,16 +321,16 @@ function renderScene() {
     ctx.putImageData(brush, task.x_from, task.y_from);
   };
   
-  jsfarm.onTaskProgress = function(task, frac) {
+  workset.onTaskProgress = function(task, frac) {
   };
   
   var extent = Math.max(next_pot(dw), next_pot(dh));
   var task = new Range(0, 0, extent, extent);
-  jsfarm.addTask(task);
+  workset.addTask(task);
   
-  $('#progress').empty().append(jsfarm.progress_ui.dom);
+  $('#progress').empty().append(workset.progress_ui.dom);
   
-  jsfarm.shuffle();
+  workset.shuffle();
   
-  jsfarm.run();
+  workset.run();
 }
