@@ -229,7 +229,19 @@ function resizeCanvas(canvas, width, height) {
   
   jq.off('click');
   
-  var compressed = canvas.width > 512 || canvas.height > 512;
+  var reset = function() {
+    jq.removeClass('canvas-fullsize').removeClass('canvas-downscaled').
+      css('width', small_w).css('height', small_h).
+      css('margin-left', '').
+      css('margin-top' , '');
+    
+    if (window.hasOwnProperty('resize_canvas')) {
+      $(window).off('resize', null, window.resize_canvas);
+      delete window.resize_canvas;
+    }
+  };
+  
+  var compressed = width > 512 || height > 512;
   if (compressed) {
     jq.removeClass('canvas-fullsize').addClass('canvas-downscaled');
     jq.on('click', function() {
@@ -247,14 +259,11 @@ function resizeCanvas(canvas, width, height) {
         window.resize_canvas();
         $(window).on('resize', null, window.resize_canvas);
       } else {
-        jq.removeClass('canvas-fullsize').addClass('canvas-downscaled').
-          css('width', small_w).css('height', small_h).
-          css('margin-left', '').
-          css('margin-top' , '');
-        $(window).off('resize', null, window.resize_canvas);
-        delete window.resize_canvas;
+        reset();
       }
     });
+  } else {
+    reset();
   }
 }
 
