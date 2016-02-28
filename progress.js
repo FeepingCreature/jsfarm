@@ -215,7 +215,7 @@ function ProgressUI(max_fn) {
     var setHeight = proginfo._set_height || 0;
     var newHeight = numRows * 5 + 2;
     if (newHeight > setHeight) {
-      tasks_dom[0].style.display = 'initial';
+      tasks_dom[0].style.display = "inherit";
       tasks_dom[0].style.height = newHeight+"px";
       proginfo._set_height = newHeight;
     }
