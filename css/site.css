@@ -100,7 +100,7 @@ input[type="text"] {
 
 .CodeMirror {
   width: 600px;
-  min-height: 400px;
+  height: 496px;
   
   font-size: 8pt;
   font-family: monospace;
