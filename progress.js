@@ -163,12 +163,12 @@ function ProgressInfo(settings) {
 }
 
 /** @constructor */
-function ProgressUI(tasks) {
-  this.tasks = tasks;
-  
+function ProgressUI(max_fn) {
   this.main_progress = new ProgressInfo({percent: true, fraction: true, eta: true, label_inside: true});
+  this.max_fn = max_fn;
   this.label_by_id = {};
   this.contributors = {};
+  this.num_connections = 0;
   
   var dom = $('<dl><dt>Tasks</dt><dd><div id="main_progress"></div></dd></dl>');
   dom.find('#main_progress').replaceWith(this.main_progress.dom);
@@ -179,10 +179,7 @@ function ProgressUI(tasks) {
   };
   
   this.reset = function() {
-    if (this.tasks.length != 1) throw "internal error";
-    var msg = this.tasks[0].message;
-    
-    this.main_progress.reset((msg.x_to - msg.x_from) * (msg.y_to - msg.y_from));
+    this.main_progress.reset(this.max_fn());
     
     text(this.cache['#QuickProgInfo'], "");
     
@@ -192,9 +189,6 @@ function ProgressUI(tasks) {
     
     this.label_by_id = {};
     this.contributors = {};
-  };
-  
-  this.addToDom = function(label) {
   };
   
   this.sortContributors = function() {
@@ -228,6 +222,7 @@ function ProgressUI(tasks) {
   };
   
   this.onOpenConnection = function(id, label) {
+    this.num_connections ++;
     this.label_by_id[id] = label;
     var proginfo = null;
     if (this.contributors.hasOwnProperty(label)) {
@@ -249,7 +244,9 @@ function ProgressUI(tasks) {
     proginfo.refs ++;
   };
   this.onCloseConnection = function(id) {
+    this.num_connections --;
     this.sortContributors();
+    this.updateQuickProgInfo();
     var proginfo = this.contributors[this.label_by_id[id]];
     proginfo.refs --;
     if (proginfo.refs == 0) {
@@ -272,10 +269,13 @@ function ProgressUI(tasks) {
     task._progress.update(Math.floor(task.progress * 512));
   };
   this.onTaskCompleted = function(task) {
-    var node = task._progress.dom[0];
-    node.parentNode.removeChild(node);
-    this.rescaleTaskListHeight(task.assigned_to);
-    delete task._progress;
+    // this can fail if the task never even progressed before being completed.
+    if (task.hasOwnProperty('_progress')) {
+      var node = task._progress.dom[0];
+      node.parentNode.removeChild(node);
+      this.rescaleTaskListHeight(task.assigned_to);
+      delete task._progress;
+    }
     
     var msg = task.message;
     var size = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from);
@@ -284,7 +284,7 @@ function ProgressUI(tasks) {
     
     this.main_progress.increase(size);
     
-    text(this.cache['#QuickProgInfo'], this.main_progress.getPercent()+"%, "+this.main_progress.dom_cache['eta'].textContent);
+    this.updateQuickProgInfo();
   };
   this.onTaskAborted = function(task) {
     if (!task.hasOwnProperty('_progress')) return;
@@ -293,4 +293,10 @@ function ProgressUI(tasks) {
     this.rescaleTaskListHeight(task.assigned_to);
     delete task._progress;
   };
+  this.updateQuickProgInfo = function() {
+    text(this.cache['#QuickProgInfo'], this.num_connections+" peers connected - "
+      +this.main_progress.getPercent()+"% - "
+      +this.main_progress.dom_cache['eta'].textContent);
+  };
+  this.updateQuickProgInfo();
 }

@@ -150,6 +150,76 @@ function WorkTask(range) {
   };
 }
 
+var global_help_stats = {
+  num_renders_helped: 0,
+  num_samples_helped: 0,
+  dom_renders_helped: null,
+  dom_samples_helped: null,
+  init: function() {
+    this.dom_renders_helped = document.createTextNode(this.num_renders_helped);
+    this.dom_samples_helped = document.createTextNode(this.num_samples_helped);
+    var jq = $('<span class="helping">You have helped </span>').
+      append($('<b></b>').append(this.dom_renders_helped)).
+      append(" peers render ").
+      append($('<b></b>').append(this.dom_samples_helped)).
+      append(" samples.");
+    $('#HelpedInfo').append(jq);
+  },
+  updateInfo: function() {
+    this.dom_renders_helped.nodeValue = this.num_renders_helped.toString();
+    this.dom_samples_helped.nodeValue = this.num_samples_helped.toLocaleString();
+  }
+};
+
+/** @constructor */
+function HelpStats() {
+  this.div = $('<div class="helping">&gt; Incoming connection.</div>');
+  this.pixels_helped = 0;
+  this.jq_peername = null;
+  this.was_logged = false;
+  this.first_result_submitted = true;
+  this.killed = false;
+  this.t_last_updated = 0;
+  
+  this.onLearnLabel = function(label) {
+    this.jq_peername = $('<b class="peername"></b>').text(label);
+  };
+  this.onSendResult = function(samples) {
+    if (this.killed) return;
+    
+    this.pixels_helped += samples;
+    
+    var t = time();
+    if (t - this.t_last_updated > 100) {
+      this.t_last_updated = t;
+      
+      if (!this.was_logged) {
+        this.dom_samples_helped = document.createTextNode("");
+        var div = $('<div class="helping">&gt; You have helped </div>').
+          append(this.jq_peername).
+          append(" render ").
+          append($('<b></b>').append(this.dom_samples_helped)).
+          append(" samples! Thank you!");
+        logJq(div);
+        this.was_logged = true;
+      }
+      this.dom_samples_helped.nodeValue = this.pixels_helped.toLocaleString();
+    }
+    
+    if (this.first_result_submitted) {
+      global_help_stats.num_renders_helped++;
+      if (global_help_stats.num_renders_helped == 1) global_help_stats.init();
+      this.first_result_submitted = false;
+    }
+    global_help_stats.num_samples_helped += samples;
+    global_help_stats.updateInfo();
+  };
+  // oh wait, this client that's connected to me is just myself. don't log.
+  this.ohWaitNoItsJustMe = function() {
+    this.killed = true;
+  };
+}
+
 /** @constructor */
 function ServerConnection() {
   this.workers = [];
@@ -192,6 +262,9 @@ function ServerConnection() {
         con.send({kind: 'result', channel: msg.channel, data: data.buffer});
         delete wrapper.onComplete;
         
+        var pixels = data.buffer.byteLength / 4;
+        con.helpstats.onSendResult(task.default_obj.quality * pixels);
+        
         // worker has gone idle, maybe we can assign a queued task?
         self.checkQueue();
       };
@@ -222,6 +295,7 @@ function ServerConnection() {
   this.handleIncomingConnection = function(con) {
     var self = this;
     
+    con.helpstats = new HelpStats();
     
     var handlePing = function(msg) {
       if (msg.kind == "ping") {
@@ -231,6 +305,7 @@ function ServerConnection() {
     
     var handleLabel = function(msg) {
       if (msg.kind == "whoareyou") {
+        con.helpstats.onLearnLabel(msg.whoami);
         con.send({kind: "iamcalled", label: getMyLabel(self), channel: msg.channel});
       }
     }
@@ -251,6 +326,7 @@ function ServerConnection() {
         task.msg = msg;
         task.default_obj = default_obj;
         if (msg.secret === self.secret) {
+          con.helpstats.ohWaitNoItsJustMe();
           task.prioritize = true;
         }
         
@@ -447,11 +523,13 @@ function MessageDispatcher() {
 
 /** @constructor */
 function RenderWorkset(connection) {
+  var self = this;
+  
   this.workers = [];
   
   this.tasks = [];
   this.task_defaults = {};
-  this.progress_ui = new ProgressUI(this.tasks);
+  this.progress_ui = new ProgressUI(function() { return self.task_defaults.dw * self.task_defaults.dh; });
   
   this.peerlist = [];
   this.peerlist_last_updated = null;
