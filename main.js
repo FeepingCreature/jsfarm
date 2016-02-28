@@ -302,11 +302,11 @@ function MarkEditorsSaved() {
 }
 
 $(function() {
-  window.onbeforeunload = function() {
+  $(window).on('beforeunload', function() {
     if (!window.editor.allClean()) {
       return "You have unsaved code! Are you sure you want to leave?";
     }
-  };
+  });
 });
 
 function next_pot(n) {
@@ -441,8 +441,10 @@ function RenderScene() {
 }
 
 function CancelRender() {
-  window.workset.cancel();
-  delete window.workset;
+  if (window.hasOwnProperty('workset')) {
+    window.workset.cancel();
+    delete window.workset;
+  }
   $('#CancelButton').hide();
   $('#RenderButton').show();
 }

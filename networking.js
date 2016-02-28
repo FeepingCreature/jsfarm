@@ -436,7 +436,7 @@ function ServerConnection() {
     self.peerjs.on('open', function(id) {
       setStatus("Status: connected as "+id);
       self.id = id;
-      window.onbeforeunload = Disconnect;
+      $(window).on('unload', null, Disconnect);
       
       // sanity limit
       var threads = Math.min(36, document.getElementById('threads').value|0);
@@ -453,6 +453,7 @@ function ServerConnection() {
     while (this.workers.length) {
       this.workers.pop().worker.terminate();
     }
+    $(window).off('unload', null, Disconnect);
     $('#WorkerInfo').hide();
     $('#WorkerInfo .workerlist').empty();
     
