@@ -225,29 +225,32 @@ function resizeCanvas(canvas, width, height) {
   var smallscale = Math.min(512 / width, 512 / height);
   var small_w = (width  * smallscale)|0;
   var small_h = (height * smallscale)|0;
-  jq.css('width', small_w).css('height', small_h);
   
   jq.off('click');
   
+  var compressed = width > 512 || height > 512;
+  
   var reset = function() {
-    jq.removeClass('canvas-fullsize').removeClass('canvas-downscaled').
+    jq.removeClass('canvas-fullsize').
       css('width', small_w).css('height', small_h).
       css('margin-left', '').
       css('margin-top' , '');
+    if (compressed) jq.addClass('canvas-downscaled');
+    else jq.removeClass('canvas-downscaled');
     
-    if (window.hasOwnProperty('resize_canvas')) {
-      $(window).off('resize', null, window.resize_canvas);
-      delete window.resize_canvas;
+    if (window.hasOwnProperty('fullsize_canvas')) {
+      $(window).off('resize', null, window.fullsize_canvas);
+      delete window.fullsize_canvas;
     }
   };
   
-  var compressed = width > 512 || height > 512;
+  reset();
+  
   if (compressed) {
-    jq.removeClass('canvas-fullsize').addClass('canvas-downscaled');
     jq.on('click', function() {
       if (jq.hasClass('canvas-downscaled')) {
         jq.removeClass('canvas-downscaled').addClass('canvas-fullsize');
-        window.resize_canvas = function() {
+        window.fullsize_canvas = function() {
           var win_w = window.innerWidth, win_h = window.innerHeight;
           var scale = Math.min(win_w / Math.max(win_w, width), win_h / Math.max(win_h, height));
           var target_w = (width  * scale)|0;
@@ -256,14 +259,12 @@ function resizeCanvas(canvas, width, height) {
             css('margin-left', (-target_w/2)|0).
             css('margin-top' , (-target_h/2)|0);
         };
-        window.resize_canvas();
-        $(window).on('resize', null, window.resize_canvas);
+        window.fullsize_canvas();
+        $(window).on('resize', null, window.fullsize_canvas);
       } else {
         reset();
       }
     });
-  } else {
-    reset();
   }
 }
 
