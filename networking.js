@@ -51,6 +51,7 @@ function RobinTask(con, evictfn) {
   this.con = con;
   this.origin = con.id;
   this.evict = evictfn;
+  this.prioritize = false;
 }
 
 /** @constructor */
@@ -59,12 +60,14 @@ function RobinQueue(limit) {
   this.limit = limit;
   this.tasks = [];
   this.getScoreForTask = function(task) {
+    if (task.prioritize) return 1;
     if (task.origin in this.scores) {
       return this.scores[task.origin];
     }
     return 0;
   };
   this.penalizeTaskOrigin = function(task) {
+    if (task.prioritize) return;
     if (!(task.origin in this.scores)) {
       this.scores[task.origin] = 0;
     }
@@ -75,7 +78,7 @@ function RobinQueue(limit) {
   this.popTask = function() {
     if (!this.tasks.length) return null;
     var task = this.tasks.shift(); // fifo
-    this.penalizeTaskOrigin(task); // Only now, that we're actually starting to compute it!
+    this.penalizeTaskOrigin(task); // only penalize now that we're actually starting to compute it!
     return task;
   };
   this.addTaskMaybe = function(task) {
@@ -149,6 +152,10 @@ function ServerConnection() {
   
   this.id = null;
   
+  // used as a quick and dirty way to recognize ourselves to prioritize our own tasks.
+  // easy to spoof, but would require us having connected to the spoofer previously.
+  this.secret = ""+Math.random(); // lol uuid
+  
   this.taskqueue = new RobinQueue(0);
   
   this._connectPeerJs = function() {
@@ -180,7 +187,7 @@ function ServerConnection() {
         delete wrapper.onComplete;
         
         // worker has gone idle, maybe we can assign a queued task?
-        self.checkQueue(con);
+        self.checkQueue();
       };
       
       wrapper.onProgress = function(frac) {
@@ -241,12 +248,15 @@ function ServerConnection() {
         });
         task.msg = msg;
         task.default_obj = default_obj;
+        if (msg.secret === self.secret) {
+          task.prioritize = true;
+        }
         
         if (self.taskqueue.addTaskMaybe(task)) {
           // log("accept task "+JSON.stringify(msg));
           con.send({kind: 'accepted', channel: msg.channel});
           // queue has gained a task, maybe we can assign it to a worker?
-          self.checkQueue(con, default_obj);
+          self.checkQueue();
         } else {
           // log("reject task "+JSON.stringify(msg));
           con.send({kind: 'rejected', reason: 'taskqueue full', channel: msg.channel});
