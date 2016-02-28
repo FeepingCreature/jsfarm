@@ -75,6 +75,11 @@ function loadTheme(theme) {
     loadCss(css_default_after[i]);
   }
   editor_cfg.theme = theme.editor_theme;
+  var editor = window.editor;
+  for (var i = 0; i < editor.files.length; ++i) {
+    var file = editor.files[i];
+    file.editor.setOption('theme', theme.editor_theme);
+  }
 }
 
 var theme = Cookies.get('theme');
