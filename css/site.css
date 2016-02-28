@@ -112,6 +112,20 @@ input[type="text"] {
   height: 512px;
   z-index: 6;
 }
+
+#canvas-wrapper {
+  /* center the canvas x/y */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  
+  border: 1px solid;
+  border-radius: 2px;
+  width: 514px;
+  height: 514px;
+}
+
 .canvas-downscaled:hover {
   cursor: zoom-in;
 }
@@ -125,6 +139,14 @@ input[type="text"] {
   top: 50%;
   left: 50%;
 }
+
+#console {
+  border:1px solid;
+  height: 100px;
+  overflow-y: scroll;
+  line-height: 110%; 
+}
+
 .error-icon {
   background-color: #f55;
   font-weight: bold;

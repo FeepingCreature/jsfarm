@@ -210,15 +210,46 @@ function CloseLoadingModal() {
 }
 
 function resizeCanvas(canvas, width, height) {
+  var jq = $(canvas);
   if (canvas.width != width || canvas.height != height) {
     canvas.width = width;
     canvas.height = height;
   }
+  
   // aspect ratio
-  if (width >= height) {
-    $(canvas).css('width', 512).css('height', height * 512 / width);
-  } else {
-    $(canvas).css('height', 512).css('width', width * 512 / height);
+  var smallscale = Math.min(512 / Math.max(512, width), 512 / Math.max(512, height));
+  var small_w = (width  * smallscale)|0;
+  var small_h = (height * smallscale)|0;
+  jq.css('width', small_w).css('height', small_h);
+  
+  jq.off('click');
+  
+  var compressed = canvas.width > 512 || canvas.height > 512;
+  if (compressed) {
+    jq.removeClass('canvas-fullsize').addClass('canvas-downscaled');
+    jq.on('click', function() {
+      if (jq.hasClass('canvas-downscaled')) {
+        jq.removeClass('canvas-downscaled').addClass('canvas-fullsize');
+        window.resize_canvas = function() {
+          var win_w = window.innerWidth, win_h = window.innerHeight;
+          var scale = Math.min(win_w / Math.max(win_w, width), win_h / Math.max(win_h, height));
+          var target_w = (width  * scale)|0;
+          var target_h = (height * scale)|0;
+          jq.css('width', target_w).css('height', target_h).
+            css('margin-left', (-target_w/2)|0).
+            css('margin-top' , (-target_h/2)|0);
+        };
+        window.resize_canvas();
+        $(window).on('resize', null, window.resize_canvas);
+      } else {
+        jq.removeClass('canvas-fullsize').addClass('canvas-downscaled').
+          css('width', small_w).css('height', small_h).
+          css('margin-left', '').
+          css('margin-top' , '');
+        $(window).off('resize', null, window.resize_canvas);
+        delete window.resize_canvas;
+      }
+    });
   }
 }
 
