@@ -466,6 +466,23 @@ function ServerConnection() {
 };
 
 /** @constructor */
+function PerfEstimator() {
+  this.pixels = 0;
+  this.seconds = 1;
+  this.reset = function() {
+    this.pixels = 0;
+    this.seconds = 1;
+  };
+  this.feedback = function(pixels, seconds) {
+    this.pixels += pixels;
+    this.seconds += seconds;
+  };
+  this.estimate = function(pixels) {
+    return (this.seconds / this.pixels) * pixels;
+  };
+}
+
+/** @constructor */
 function HandlerFn(channel, kind, fn) {
   this.channel = channel;
   this.kind = kind;
@@ -549,8 +566,7 @@ function RenderWorkset(connection) {
   this.onTaskStart = null;
   this.onTaskDone = null;
   this.onTaskProgress = null;
-  this.cost_estimate_seconds = 1;
-  this.cost_estimate_pixels = 0;
+  this.estimators_con = {};
   this.killed = false;
   
   this.listAllPeersDelayed = function(fn) {
@@ -622,6 +638,10 @@ function RenderWorkset(connection) {
         
         var reenqueueTask = function(task, reason) {
           self.progress_ui.onTaskAborted(task);
+          if (reason == 'timeout') {
+            // Well clearly it wasn't a very good estimate, now!
+            self.getPerfEstimatorFor(id).reset();
+          }
           if (task.state != 'asking' && task.state != 'accepted') throw ("reenqueueTask: invalid state transition: '"+task.state+"' to 'queued'");
           task.state = 'queued';
           task.assigned_to = null;
@@ -634,8 +654,11 @@ function RenderWorkset(connection) {
           task.state = 'done';
           self.onTaskDone(msg, resultInfo);
           self.progress_ui.onTaskCompleted(task);
-          self.cost_estimate_seconds += timer.elapsed() / 1000;
-          self.cost_estimate_pixels += (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from);
+          
+          var pixels_rendered = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from);
+          var time_taken = timer.elapsed() / 1000;
+          self.getPerfEstimatorFor(id).feedback(pixels_rendered, time_taken);
+          
           // log("done: "+timer.elapsed()+" for "+(msg.x_to - msg.x_from) * (msg.y_to - msg.y_from));
           delete tasksInFlight[task.id];
           self.checkAreWeDone();
@@ -681,7 +704,6 @@ function RenderWorkset(connection) {
         
         con.on('open', function() {
           var channel_counter = 0;
-          
           
           var startExchange = function() {
             var channel = channel_counter ++;
@@ -1065,16 +1087,21 @@ function RenderWorkset(connection) {
     }
     return null;
   };
+  this.getPerfEstimatorFor = function(id) {
+    if (!this.estimators_con.hasOwnProperty(id)) {
+      this.estimators_con[id] = new PerfEstimator();
+    }
+    return this.estimators_con[id];
+  };
   this.estimSubdivideTask = function(id, task) {
     var msg = task.message;
     var dw = this.task_defaults.dw, dh = this.task_defaults.dh;
     var task_pixels = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from);
-    var estim_seconds_per_pixel = this.cost_estimate_seconds / this.cost_estimate_pixels;
-    var estim_seconds_per_task = task_pixels * estim_seconds_per_pixel;
+    var estim_seconds_for_task = this.getPerfEstimatorFor(id).estimate(task_pixels);
     var max_seconds_per_task = 10;
     var must_split = msg.x_to > dw || msg.y_to > dh; // invalid as-is
-    if (!must_split && (estim_seconds_per_task <= max_seconds_per_task || task_pixels == 1)) return false;
-    // log("subdivide task: targeting", max_seconds_per_task, ", estimated", estim_seconds_per_task, "for", task_pixels);
+    if (!must_split && (estim_seconds_for_task <= max_seconds_per_task || task_pixels == 1)) return false;
+    // log("subdivide task: targeting", max_seconds_per_task, ", estimated", estim_seconds_for_task, "for", task_pixels);
     // subdivide into four quadrants
     var tl = task, tr = task.sclone(), bl = task.sclone(), br = task.sclone();
     
