@@ -1194,7 +1194,7 @@ Peer.prototype.listAllPeers = function(cb) {
   var http = new XMLHttpRequest();
   var protocol = this.options.secure ? 'https://' : 'http://';
   var url = protocol + this.options.host + ':' + this.options.port +
-    this.options.path + this.options.key + '/peers';
+    this.options.path + this.options.key + '/' + this.id + '/peers';
   var queryString = '?ts=' + new Date().getTime() + '' + Math.random();
   url += queryString;
 

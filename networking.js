@@ -23,6 +23,12 @@ function log_id(id) {
   target.appendChild(document.createTextNode(msg));
 }
 
+function getMyLabel(self) {
+  var jq_ident = ""+document.getElementById('ident').value;
+  if (jq_ident == "") jq_ident = null;
+  return jq_ident || self.id;
+}
+
 function decodeAddress(address) {
   var res = {port: 80, path: "jsfarm"};
   var match = address.match(/^([^:\/]*)(:([0-9]*))?(\/(.*))?$/);
@@ -216,7 +222,6 @@ function ServerConnection() {
   this.handleIncomingConnection = function(con) {
     var self = this;
     
-    log("incoming", con.id);
     
     var handlePing = function(msg) {
       if (msg.kind == "ping") {
@@ -226,10 +231,7 @@ function ServerConnection() {
     
     var handleLabel = function(msg) {
       if (msg.kind == "whoareyou") {
-        var jq_ident = ""+document.getElementById('ident').value;
-        if (jq_ident == "") jq_ident = null;
-        
-        con.send({kind: "iamcalled", label: jq_ident || self.id, channel: msg.channel});
+        con.send({kind: "iamcalled", label: getMyLabel(self), channel: msg.channel});
       }
     }
     
@@ -448,6 +450,7 @@ function RenderWorkset(connection) {
   this.workers = [];
   
   this.tasks = [];
+  this.task_defaults = {};
   this.progress_ui = new ProgressUI(this.tasks);
   
   this.peerlist = [];
@@ -470,7 +473,6 @@ function RenderWorkset(connection) {
   this.onTaskProgress = null;
   this.cost_estimate_seconds = 1;
   this.cost_estimate_pixels = 0;
-  this.task_defaults = {};
   this.killed = false;
   
   this.listAllPeersDelayed = function(fn) {
@@ -489,7 +491,7 @@ function RenderWorkset(connection) {
       for (var i = 0; i < peerlist.length; ++i) {
         var id = peerlist[i];
         if (!(peersHandled.hasOwnProperty(id))) {
-          log("discovered new peer", id);
+          // log("discovered new peer", id);
           peersHandled[id] = true;
           peerHandler(id);
         }
@@ -497,7 +499,7 @@ function RenderWorkset(connection) {
     };
     
     var recheckPeers = function() {
-      log("relisting peers");
+      // log("relisting peers");
       self.connection.peerjs.listAllPeers(function(peers) {
         peerlist = peers;
         callBackWithNewPeers();
@@ -577,7 +579,7 @@ function RenderWorkset(connection) {
             }
             clearInterval(con_control_timer);
             // log_id(id, "finish:", reason, ",", JSON.stringify(Array.prototype.slice.call(arguments)));
-            log(id, "removing connection because", reason);
+            // log(id, "removing connection because", reason);
             for (var key in tasksInFlight) {
               var task = tasksInFlight[key];
               if (task.assigned_to && task.assigned_to != id) {
@@ -587,7 +589,9 @@ function RenderWorkset(connection) {
             }
             if (Object.keys(tasksInFlight).length > 0) throw "internal error - tasks left in queue";
             
-            self.progress_ui.onCloseConnection(id);
+            if (!firstExchangeOnConnection) {
+              self.progress_ui.onCloseConnection(id);
+            }
             delete self.connections[id];
             maybeSpawnNewConnections();
           };
@@ -655,7 +659,7 @@ function RenderWorkset(connection) {
             };
             
             var get_label = function(cps) {
-              con.send({kind: "whoareyou", channel: channel});
+              con.send({kind: "whoareyou", channel: channel, whoami: getMyLabel(self.connection)});
               var res = null;
               dispatch.waitMsg(channel, 'iamcalled', function(msg) {
                 res = msg.label;
@@ -685,7 +689,7 @@ function RenderWorkset(connection) {
               
               dispatch.waitMsg(channel, /accepted|rejected/, reactTaskAccepted);
               
-              con.send({kind: 'task', message: task.message, channel: channel});
+              con.send({kind: 'task', message: task.message, secret: self.connection.secret, channel: channel});
               return function() { return cps(result); }; // yield; return result;
             };
             
@@ -765,9 +769,9 @@ function RenderWorkset(connection) {
             return if_label_set_body(function() {
               return peerinfo.wait_label_completion(advance, function() {
                 if (firstExchangeOnConnection) {
+                  firstExchangeOnConnection = false;
                   // as soon as we have the label...
                   self.progress_ui.onOpenConnection(id, peerinfo.label);
-                  firstExchangeOnConnection = false;
                   con.send({kind: 'default', object: self.task_defaults});
                 }
                 
@@ -913,7 +917,7 @@ function RenderWorkset(connection) {
         }
         
         var new_id = ids.pop();
-        log("open new connection to", new_id);
+        // log("open new connection to", new_id);
         connect(new_id);
       };
       

@@ -38,7 +38,7 @@ onmessage = function(e) {
     var quality = e.data.quality;
     var s2src = e.data.source;
     
-    if (dw > 4000 || dh > 4000 || dw < 0 || dh < 0) throw "size limits exceeded";
+    if (dw > 4096 || dh > 4096 || dw < 0 || dh < 0) throw "size limits exceeded";
     
     if (x_from < 0 || x_to > dw || y_from < 0 || y_to > dh) throw "render range outside image";
     
@@ -119,7 +119,8 @@ onmessage = function(e) {
         config.x_to = x_to;
         config.y_to = y_to;
         config.count = 0;
-        config.last_t = 0; // initial message straight off
+        config.last_t = Date.now() - 800; // initial message after 200ms
+        // config.last_t = 0; // initial message straight off
         
         compiled.resetGlobals();
         

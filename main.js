@@ -38,8 +38,8 @@ var LogStart = time();
 function log() {
   var msg = Array.prototype.slice.call(arguments).join(" ");
   var div = $('<div></div>');
-  var t = time();
-  div.append(((t - LogStart)/1000.0)+": ");
+  // var t = time();
+  // div.append(((t - LogStart)/1000.0)+": ");
   div.append(document.createTextNode('> '+msg)).append('<br>');
   logJq(div);
 }
@@ -222,9 +222,14 @@ function next_pot(n) {
 }
 
 function RenderScene() {
+  if (!window.connection) {
+    log("You must be connected to the network!");
+    return;
+  }
+  
   $(window).trigger("startRender");
   
-  $('#console').empty();
+  // $('#console').empty();
   
   var fullsrc = window.getFullSrc();
   var files = window.getFiles();
@@ -246,19 +251,20 @@ function RenderScene() {
   for (var i = 0; i < lines.length; ++i)
     lines[i] = (i+1)+": "+lines[i];
   var srctext = lines.join("<br>").replace(/\t/g, '&nbsp;&nbsp;&nbsp;&nbsp;');
-  logHtml("<a href=\"#\" onclick=\"$(this).parent().find('.src').toggle();\">Source</a>"+
+  logHtml("Rendering. (<a href=\"#\" onclick=\"$(this).parent().find('.src').toggle();\">Source</a>)"+
       "<div class=\"src\" style=\"display:none;\">"+srctext+"</div>");
   
   var canvas = document.getElementById('canvas');
   
-  var nwidth = Math.max(0, Math.min(4000, document.getElementById('width').value|0));
-  var nheight = Math.max(0, Math.min(4000, document.getElementById('height').value|0));
+  var nwidth = Math.max(0, Math.min(4096, document.getElementById('width').value|0));
+  var nheight = Math.max(0, Math.min(4096, document.getElementById('height').value|0));
   
   if (canvas.width != nwidth || canvas.height != nheight) {
     canvas.width = nwidth;
     canvas.height = nheight;
   }
   
+  // aspect ratio
   if (nwidth >= nheight) {
     $(canvas).css('width', 512).css('height', canvas.height * 512 / canvas.width);
   } else {
@@ -288,24 +294,9 @@ function RenderScene() {
     return ctx.createImageData(width, height);
   });
   
-  /*
-  var start = window.performance.now();
-  
-  function finish() {
-    var end = window.performance.now();
-    
-    log(Math.floor(end-start)+"ms: "+
-        Math.floor((canvas.width*canvas.height)/((end-start)/1000))+"pps");
-  }
-  */
-  
-  if (!window.connection) return;
-  
   var workset = new RenderWorkset(window.connection);
   
   window.workset = workset;
-  
-  logHtml('Processing.');
   
   $('#RenderButton').hide();
   $('#CancelButton').show();
@@ -373,6 +364,7 @@ function RenderOrCancel() {
 function Connect() {
   window.connection = new ServerConnection;
   window.connection.connect();
+  log("Connected and waiting for work.");
 }
 
 function Disconnect() {
