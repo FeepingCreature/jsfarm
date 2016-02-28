@@ -1,5 +1,91 @@
 'use strict';
 
+$('#result_area > .nav-tabs a').click(function (e) {
+  e.preventDefault();
+  $(this).tab('show');
+});
+
+var editor_cfg = {
+  lineNumbers: true,
+  mode: "scheme",
+  matchBrackets: true,
+  autoCloseBrackets: true,
+  indentUnit: 2,
+  gutters: ["error-gutter"],
+  extraKeys: {
+    'Ctrl-Enter': function(cm) {
+      RenderOrCancel();
+    },
+    'Ctrl-Up': function(cm) {
+      $('#quality').val(($('#quality').val()|0) * 2);
+    },
+    'Ctrl-Down': function(cm) {
+      $('#quality').val(($('#quality').val()|0) / 2);
+    },
+  },
+};
+
+var css_default_before = [
+  'css/bootstrap.min.css',
+  'addon/lint/lint.css',
+  'lib/codemirror.css',
+];
+
+var css_default_after = [
+  'css/site.css',
+];
+
+var themes = {
+  'light': {
+    editor_theme: 'neat',
+    css: [
+      'css/bootstrap-theme.min.css',
+      'css/neat.css',
+      'site-light.css',
+    ]
+  },
+  'dark': {
+    editor_theme: 'lesser-dark',
+    css: [
+      'css/bootstrap-cyborg.min.css',
+      'css/lesser-dark.css',
+      'site-dark.css',
+    ]
+  },
+};
+
+function loadCss(url) {
+  var link = document.createElement("link");
+  link.href = url;
+  link.type = "text/css";
+  link.rel = "stylesheet";
+  link.className = "theme";
+  $('meta').add('link.theme').last().after(link);
+}
+function loadTheme(theme) {
+  $('link.theme').remove();
+  var theme = themes[theme];
+  for (var i = 0; i < css_default_before.length; i++) {
+    loadCss(css_default_before[i]);
+  }
+  for (var i = 0; i < theme.css.length; i++) {
+    loadCss(theme.css[i]);
+  }
+  for (var i = 0; i < css_default_after.length; i++) {
+    loadCss(css_default_after[i]);
+  }
+  editor_cfg.theme = theme.editor_theme;
+}
+
+var theme = Cookies.get('theme');
+if (!theme || !themes.hasOwnProperty(theme)) theme = 'light';
+loadTheme(theme);
+
+function setTheme(theme) {
+  Cookies.set('theme', theme);
+  loadTheme(theme);
+}
+
 function bootstrap_progbar() {
   var progbar = $(
     '<div class="progress" style="height: 10px; margin-bottom: inherit;">'+
@@ -16,32 +102,6 @@ function bootstrap_progbar() {
         html(percent+"%");
     }
   };
-}
-
-// shared helper
-function logJq(jq) {
-  if (typeof window !== 'undefined') {
-    var console = $('#console');
-    console.append(jq);
-    console.scrollTop(1<<30);
-  }
-}
-
-// opt-in to raw html logging
-function logHtml() {
-  var msg = Array.prototype.slice.call(arguments).join(" ");
-  logJq('&gt; '+msg+'<br>');
-}
-
-var LogStart = time();
-
-function log() {
-  var msg = Array.prototype.slice.call(arguments).join(" ");
-  var div = $('<div></div>');
-  // var t = time();
-  // div.append(((t - LogStart)/1000.0)+": ");
-  div.append(document.createTextNode('> '+msg)).append('<br>');
-  logJq(div);
 }
 
 function LoadSettings() {

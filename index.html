@@ -24,9 +24,13 @@
 <script src="compile.js"></script>
 <script src="files.js"></script>
 <script src="time.js"></script>
-<script src="main.js"></script>
+<script src="log.js"></script>
 <script src="networking.js"></script>
 <script src="progress.js"></script>
+<script src="edit.js"></script>
+<script src="main.js"></script>
+
+<link rel='icon' href='data:;base64,iVBORw0KGgo='>
 
 </head>
 <body>
@@ -149,7 +153,7 @@
 
 (def sum (lambda (vec) (+ (: vec x) (: vec y) (: vec z))))
 (def length (lambda (vec) (sqrt (sum (* vec vec)))))
-</textarea
+</textarea>
 </span>
 </div>
 
@@ -165,8 +169,8 @@
 
   <div class="tab-content" style="position:relative;">
     <div role="tabpanel" class="tab-pane active" aria-labelledby="image-tab" id="image-pane" style="display: inherit;">
-      <div class="canvas-wrapper" style="display: flex; flex-direction: column; justify-content: center; align-items: center; border: 1px solid; border-radius: 2px; width: 514px; height: 514px;">
-        <canvas id="canvas" width="512" height="512" style="margin-top: 6px; width: 512px; height: 512px;"></canvas>
+      <div id="canvas-wrapper">
+        <canvas id="canvas" width="512" height="512"></canvas>
       </div>
     </div>
     <div role="tabpanel" class="tab-pane panel panel-default" aria-labelledby="progress-tab" id="progress-pane">
@@ -180,360 +184,23 @@
 
 </td></tr></table>
 
-<script>
-  var editor_cfg = {
-    lineNumbers: true,
-    mode: "scheme",
-    matchBrackets: true,
-    autoCloseBrackets: true,
-    indentUnit: 2,
-    gutters: ["error-gutter"],
-    extraKeys: {
-      'Ctrl-Enter': function(cm) {
-        RenderOrCancel();
-      },
-      'Ctrl-Up': function(cm) {
-        $('#quality').val(($('#quality').val()|0) * 2);
-      },
-      'Ctrl-Down': function(cm) {
-        $('#quality').val(($('#quality').val()|0) / 2);
-      },
-    },
-  };
-  
-  var css_default_before = [
-    'css/bootstrap.min.css',
-    'addon/lint/lint.css',
-    'lib/codemirror.css',
-  ];
-  
-  var css_default_after = [
-    'css/site.css',
-  ];
-  
-  var themes = {
-    'light': {
-      editor_theme: 'neat',
-      css: [
-        'css/bootstrap-theme.min.css',
-        'css/neat.css',
-        'site-light.css',
-      ]
-    },
-    'dark': {
-      editor_theme: 'lesser-dark',
-      css: [
-        'css/bootstrap-cyborg.min.css',
-        'css/lesser-dark.css',
-        'site-dark.css',
-      ]
-    },
-  };
-  
-  function loadCss(url) {
-    var link = document.createElement("link");
-    link.href = url;
-    link.type = "text/css";
-    link.rel = "stylesheet";
-    link.className = "theme";
-    $('meta').add('link.theme').last().after(link);
-  }
-  function loadTheme(theme) {
-    $('link.theme').remove();
-    var theme = themes[theme];
-    for (var i = 0; i < css_default_before.length; i++) {
-      loadCss(css_default_before[i]);
-    }
-    for (var i = 0; i < theme.css.length; i++) {
-      loadCss(theme.css[i]);
-    }
-    for (var i = 0; i < css_default_after.length; i++) {
-      loadCss(css_default_after[i]);
-    }
-    editor_cfg.theme = theme.editor_theme;
-  }
-  
-  var theme = Cookies.get('theme');
-  if (!theme || !themes.hasOwnProperty(theme)) theme = 'light';
-  loadTheme(theme);
-  
-  function setTheme(theme) {
-    Cookies.set('theme', theme);
-    loadTheme(theme);
-  }
-  
-  $('#target')[0].defaultValue = location.host+"/jsfarm";
-  
-  setupCanvasUpload($('#canvas'));
-  
-  $('#result_area > .nav-tabs a').click(function (e) {
-    e.preventDefault();
-    $(this).tab('show');
-  });
-  
-  LoadSettings();
-  
-  /** @constructor */
-  function EditorUi() {
-    this.files = [];
-    this.addEditors = function(newfiles) {
-      var editors_dom = $('#editors_content');
-      for (var i = 0; i < newfiles.length; ++i) {
-        var newfile = newfiles[i];
-        var div = $('<div class="tab-pane"></div>');
-        var area = $('<textarea></textarea>');
-        div.append(area);
-        
-        var position = newfile.position || editors_dom.children().length;
-        var marker = editors_dom.children().eq(position - 1);
-        if (marker.length) marker.after(div);
-        else editors_dom.append(div);
-        
-        var editor = CodeMirror.fromTextArea(area[0], editor_cfg);
-        editor.setValue(newfile.src);
-        editor.clearHistory();
-        editor.markClean();
-        
-        newfile.checkStar = function(editor, newfile) {
-          return function() {
-            if (editor.isClean(newfile.undostate)) newfile.editstar.css('visibility', 'hidden');
-            else newfile.editstar.css('visibility', 'visible');
-          };
-        }(editor, newfile);
-        editor.on('change', newfile.checkStar);
-        
-        newfile.editor = editor;
-        newfile.container = div;
-      }
-    };
-    this.rebuildEditors = function(newfiles) {
-      var editors_dom = $('#editors_content');
-      editors_dom.empty();
-      this.addEditors(newfiles);
-    };
-    this.removeEditors = function(rmfiles) {
-      for (var i = 0; i < rmfiles.length; ++i) {
-        rmfiles[i].container.remove();
-      }
-    };
-    this.allClean = function() {
-      for (var i = 0; i < this.files.length; ++i) {
-        var file = this.files[i];
-        if (!file.editor.isClean(file.undostate)) return false;
-      }
-      return true;
-    };
-    this.markClean = function() {
-      for (var i = 0; i < this.files.length; ++i) {
-        var file = this.files[i];
-        file.undostate = file.editor.changeGeneration(true);
-        file.checkStar();
-      }
-    };
-    this.addRiders = function(newfiles) {
-      var self = this;
-      var riders = $('#riders');
-      for (var i = 0; i < newfiles.length; ++i) {
-        var newfile = newfiles[i];
-        var li = $('<li role="presentation"></li>');
-        var a = $('<a class="ajaxLink"></a>');
-        var name = newfile.name;
-        var tn = null;
-        if (newfile.name == null) {
-          tn = document.createTextNode('main');
-          tn = $('<i></i>').append(tn);
-        } else {
-          tn = document.createTextNode(newfile.name);
-        }
-        var editstar = $('<span style="visibility:hidden;">*</span>');;
-        
-        a.append(tn);
-        a.append(editstar);
-        
-        li.append(a);
-        li.on('click', function(name) { return function() { self.showFile(name); }; }(newfile.name));
-        
-        newfile.editstar = editstar;
-        newfile.rider = li;
-        
-        var position = newfile.position || riders.children().length;
-        var marker = riders.children().eq(position - 1);
-        if (marker.length) marker.after(li);
-        else riders.append(li);
-      }
-    };
-    this.showFile = function(name) {
-      for (var i = 0; i < this.files.length; ++i) {
-        var file = this.files[i];
-        if (file.name == name) {
-          file.container.css('display', 'inline-block');
-          file.rider.addClass('active');
-          file.editor.refresh();
-        } else {
-          file.container.hide();
-          file.rider.removeClass('active');
-        }
-      }
-    };
-    this.rebuildRiders = function(newfiles) {
-      var riders = $('#riders');
-      riders.empty();
-      this.addRiders(newfiles);
-    };
-    this.removeRiders = function(rmfiles) {
-      for (var i = 0; i < rmfiles.length; ++i) {
-        rmfiles[i].rider.remove();
-      }
-    };
-    this.rebuildFileUi = function(newfiles) {
-      this.rebuildEditors(newfiles);
-      this.rebuildRiders(newfiles);
-      this.showFile(null);
-    };
-    this.removeFromUi = function(rmfiles) {
-      this.removeEditors(rmfiles);
-      this.removeRiders(rmfiles);
-    };
-    this.addToUi = function(newfiles) {
-      this.addEditors(newfiles);
-      this.addRiders(newfiles);
-    };
-  }
-  
-  var editor = new EditorUi;
-  window.editor = editor;
-  
-  window.getFullSrc = function() {
-    // read back
-    // TODO move to files.js
-    var src = "";
-    for (var i = 0; i < editor.files.length; ++i) {
-      var file = editor.files[i];
-      src += file.editor.getValue();
-    }
-    return src;
-  };
-  
-  window.getFiles = function() {
-    var src = window.getFullSrc();
-    // rebuild/reassign line numbers and contents
-    // TODO move into editor
-    var files = editor.files;
-    var newfiles = splitSrc(src);
-    for (var i = 0; i < files.length; ++i) files[i].assigned = false;
-    
-    var toAdd = [], toRemove = [];
-    
-    var targetlist = [];
-    
-    for (var i = 0; i < newfiles.length; ++i) {
-      var newfile = newfiles[i];
-      var file = null;
-      for (var k = 0; k < files.length; ++k) {
-        if (files[k].name == newfile.name) {
-          file = files[k];
-          file.assigned = true;
-          break;
-        }
-      }
-      if (!file) {
-        newfile.position = i;
-        toAdd.push(newfile);
-        targetlist.push(newfile);
-      } else {
-        var editor_changed = file.src != newfile.src;
-        if (editor_changed) {
-          file.src = newfile.src;
-          file.editor.setValue(file.src);
-        }
-        file.rowbase = newfile.rowbase;
-        targetlist.push(file);
-      }
-    }
-    
-    for (var i = 0; i < files.length; ++i) {
-      if (!files[i].assigned) toRemove.push(files[i]);
-    }
-    
-    /*
-    var toRemoveNames = [], toAddNames = [];
-    for (var i = 0; i < toRemove.length; ++i) toRemoveNames.push(toRemove[i].name);
-    for (var i = 0; i < toAdd.length; ++i) toAddNames.push(toAdd[i].name);
-    log("toRemove", JSON.stringify(toRemoveNames));
-    log("toAdd", JSON.stringify(toAddNames));
-    */
-    
-    editor.removeFromUi(toRemove);
-    editor.addToUi(toAdd);
-    editor.files = targetlist;
-    
-    return targetlist;
-  };
-  window.setErrorAt = function(loc1, loc2, text) {
-    var i = null;
-    var editor = window.editor;
-    for (i = 0; i < editor.files.length; ++i) {
-      editor.files[i].clear();
-    }
-    
-    for (i = 0; i < editor.files.length; ++i) {
-      var file = editor.files[i];
-      if (file.rowbase > loc1.row) break;
-    }
-    
-    if (i == 0) throw "internal messup";
-    
-    var err_file = editor.files[i-1]; // "last" file in which the error could lie
-    
-    var cm_editor = err_file.editor;
-    loc1.row -= err_file.rowbase;
-    loc2.row -= err_file.rowbase;
-    
-    var mark = cm_editor.markText(
-      {line: loc1.row, ch: loc1.column},
-      {line: loc2.row, ch: loc2.column},
-      {className: "error-marker"}
-    );
-    
-    err_file.clear = function() {
-      mark.clear();
-      cm_editor.clearGutter("error-gutter");
-      err_file.clear = function(){};
-    };
-    
-    var marker = $('<div class="error-icon"></div>');
-    marker.attr('title', text);
-    marker.tooltip({ container: 'body' });
-    
-    cm_editor.setGutterMarker(loc1.row, "error-gutter", marker[0]);
-    
-    editor.showFile(err_file.name);
-    
-    // thanks http://codemirror.977696.n3.nabble.com/Scroll-to-line-td4028275.html
-    var h = cm_editor.getScrollInfo().clientHeight;
-    var coords = cm_editor.charCoords({line: loc1.row, ch: loc1.column}, "local");
-    cm_editor.scrollTo(null, (coords.top + coords.bottom - h) / 2);
-  };
-</script>
-
 <button type="button" id="RenderButton" onclick="RenderScene()">Render</button>
 <button type="button" id="CancelButton" onclick="CancelRender()" class="starts-hidden">Cancel</button>
 <script>
-  $(function() {
-    LoadStateFromAnchor(function() {
-      if (!editor.files.length) {
-        // build default
-        editor.files = splitSrc($('#editor')[0].value);
-        editor.rebuildFileUi(editor.files);
-      }
-      // $("#RenderButton").click();
-    });
+  $('#target')[0].defaultValue = location.host+"/jsfarm";
+  LoadSettings();
+  LoadStateFromAnchor(function() {
+    if (!editor.files.length) {
+      // build default
+      editor.files = splitSrc($('#editor')[0].value);
+      editor.rebuildFileUi(editor.files);
+    }
+    // $("#RenderButton").click();
   });
+  setupCanvasUpload($('#canvas'));
 </script>
 <button type="button" id="SaveButton" onclick="Save()">Save</button>
-
 &nbsp;|&nbsp;
-
 <label for="width" title="Width of the rendered image. Please be considerate.">Width</label>
 <input type="text" size="3" id="width" name="width" value="512">
 <label for="height" title="Height of the rendered image. Please be considerate.">Height</label>
@@ -544,20 +211,20 @@
 <hr class="semisane">
 <p>Console</p>
 <div style="clear:both;"></div>
-<div style="border:1px solid; min-height: 10pt; height: 100px; overflow-y: scroll; line-height: 110%; " id="console">
+<div id="console">
 </div>
 
-<center><span class="ajaxLink" onclick="setTheme('light');">[light]</span>&nbsp;<span class="ajaxLink" onclick="setTheme('dark');">[dark]</span></center>
+<div style="text-align: center;"><span class="ajaxLink" onclick="setTheme('light');">[light]</span>&nbsp;<span class="ajaxLink" onclick="setTheme('dark');">[dark]</span></div>
 
 </div>
 
 <div class="modal" id="SiteLoadingModal" tabindex="-1" role="dialog">
   <div class="modal-dialog" role="document" style="padding-top: 5%;">
     <div class="modal-content">
-      <center class="modal-body">
+      <div style="text-align: center;" class="modal-body">
         <h2>Page is loading.</h2>
         <h3>Please wait...</h3>
-      </center>
+      </div>
     </div>
   </div>
 </div>

@@ -106,6 +106,25 @@ input[type="text"] {
   font-family: monospace;
 }
 
+#canvas {
+  margin-top: 6px;
+  width : 512px;
+  height: 512px;
+  z-index: 6;
+}
+.canvas-downscaled:hover {
+  cursor: zoom-in;
+}
+
+.canvas-fullsize:hover {
+  cursor: zoom-out;
+}
+
+.canvas-fullsize {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+}
 .error-icon {
   background-color: #f55;
   font-weight: bold;

@@ -86,9 +86,10 @@ function setupCanvasUpload(canvas) {
   var imgur_link = $('<div></div>');
   imgur_link.
     css('position', 'absolute').
-    css('top', '0px').
+    css('top', '2px').
     css('right', '0px').
     css('margin', '4px').
+    css('margin-right', '0px').
     css('padding', '2px').
     css('text-align', 'right').
     css('background-color', 'rgba(0,0,0,0.5)').
