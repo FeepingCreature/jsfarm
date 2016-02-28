@@ -149,6 +149,19 @@ function CloseLoadingModal() {
   $('#SiteLoadingModal').modal('hide');
 }
 
+function resizeCanvas(canvas, width, height) {
+  if (canvas.width != width || canvas.height != height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  // aspect ratio
+  if (width >= height) {
+    $(canvas).css('width', 512).css('height', height * 512 / width);
+  } else {
+    $(canvas).css('height', 512).css('width', width * 512 / height);
+  }
+}
+
 function LoadStateFromAnchor(onDone) {
   var obj = loadAnchor();
   
@@ -182,10 +195,7 @@ function LoadStateFromAnchor(onDone) {
     var img = new Image;
     img.crossOrigin = '';
     img.onload = function() {
-      if (canvas.width != img.width || canvas.height != img.height) {
-        canvas.width = img.width;
-        canvas.height = img.height;
-      }
+      resizeCanvas(canvas, img.width, img.height);
       var ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0);
       doneLoading();
@@ -259,17 +269,7 @@ function RenderScene() {
   var nwidth = Math.max(0, Math.min(4096, document.getElementById('width').value|0));
   var nheight = Math.max(0, Math.min(4096, document.getElementById('height').value|0));
   
-  if (canvas.width != nwidth || canvas.height != nheight) {
-    canvas.width = nwidth;
-    canvas.height = nheight;
-  }
-  
-  // aspect ratio
-  if (nwidth >= nheight) {
-    $(canvas).css('width', 512).css('height', canvas.height * 512 / canvas.width);
-  } else {
-    $(canvas).css('height', 512).css('width', canvas.width * 512 / canvas.height);
-  }
+  resizeCanvas(canvas, nwidth, nheight);
   
   var ctx = canvas.getContext('2d');
   
