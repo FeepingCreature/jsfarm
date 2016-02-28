@@ -222,7 +222,7 @@ function resizeCanvas(canvas, width, height) {
   }
   
   // aspect ratio
-  var smallscale = Math.min(512 / Math.max(512, width), 512 / Math.max(512, height));
+  var smallscale = Math.min(512 / width, 512 / height);
   var small_w = (width  * smallscale)|0;
   var small_h = (height * smallscale)|0;
   jq.css('width', small_w).css('height', small_h);
