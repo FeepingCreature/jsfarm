@@ -691,10 +691,14 @@ function RenderWorkset(connection) {
             }
             if (Object.keys(tasksInFlight).length > 0) throw "internal error - tasks left in queue";
             
-            if (!firstExchangeOnConnection) {
-              self.progress_ui.onCloseConnection(id);
+            // this might be false if we're removing peers because of errors
+            // which for some reason might trigger multiple times.
+            if (self.connections.hasOwnProperty(id)) {
+              if (!firstExchangeOnConnection) {
+                self.progress_ui.onCloseConnection(id);
+              }
+              delete self.connections[id];
             }
-            delete self.connections[id];
             maybeSpawnNewConnections();
           };
           return function() {
