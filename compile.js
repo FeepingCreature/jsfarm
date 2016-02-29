@@ -994,7 +994,7 @@ function convert_closures(context, thing) {
     function convert(lambda) {
       // log("==CONVERT==");
       // log("== "+sexpr_dump(lambda.thing));
-      function rec_var(thing, lookup) {
+      function rec_var(thing, in_nested, lookup) {
         if (thing.kind == "atom") {
           return lookup(thing.value, "%stackframe") || thing;
         }
@@ -1003,23 +1003,27 @@ function convert_closures(context, thing) {
         if (let1_props) {
           var name = let1_props.name;
           // log("debug: ", name, "in", sexpr_dump(thing));
-          var nvalue = rec_var(let1_props.value, lookup);
-          var varinfo = vars[vars_rewrite_index++];
-          if (!varinfo) {
-            throw "tried to access "+(vars_rewrite_index-1)+" of "+vars.length+" ("+name+")";
+          var nvalue = rec_var(let1_props.value, in_nested, lookup);
+          var varinfo = null;
+          if (!in_nested) {
+            varinfo = vars[vars_rewrite_index++];
+            if (!varinfo) {
+              throw "tried to access "+(vars_rewrite_index-1)+" of "+vars.length+" ("+name+")";
+            }
+            if (varinfo.name != name) throw "internal error";
           }
-          if (varinfo.name != name) throw "internal error";
           
-          if (!varinfo.accessed_from_sub) {
-            var nbody = rec_var(let1_props.body, function(n, base) {
+          if (!varinfo || !varinfo.accessed_from_sub) {
+            var nbody = rec_var(let1_props.body, in_nested, function(n, base) {
               if (n == let1_props.name) return null; // mask
               return lookup(n, base);
             });
             return let1_props.rewriteWith(nvalue, nbody);
           }
           
-          var nbody = rec_var(let1_props.body, function(n, base) {
+          var nbody = rec_var(let1_props.body, in_nested, function(n, base) {
             if (n == let1_props.name) {
+              // log("rewrite nested access to", n, "via", base);
               var access = list(":", base, varinfo.rname);
               access.value[2].fail = varinfo.thing.fail;
               return unroll_macros(context, access);
@@ -1032,18 +1036,20 @@ function convert_closures(context, thing) {
         
         var lambda_props = match_lambda(thing);
         if (lambda_props) {
-          var nbody = rec_var(lambda_props.body, function(n, track) {
+          var nbody = rec_var(lambda_props.body, true, function(n, track) {
             for (var i = 0; i < lambda_props.argnames.length; i++) {
               if (lambda_props.argnames[i] == n) return null; // mask
             }
             // access over lambda border, use parameter instead of variable
-            return lookup(n, "%parentframe");
+            var res = lookup(n, "%parentframe");
+            // log("convert", n, "to", sexpr_dump(res));
+            return res;
           });
           
           return lambda_props.rewriteWith(nbody);
         }
-          
-        return base_recurse(thing, function(thing) { return rec_var(thing, lookup); });
+        
+        return base_recurse(thing, function(thing) { return rec_var(thing, in_nested, lookup); });
       }
       
       function rec_lift(thing) {
@@ -1075,7 +1081,7 @@ function convert_closures(context, thing) {
       }
       
       // setup for parameters that belong in the frame
-      var nbody = rec_lift(rec_var(lambda.body, function(n, base) {
+      var nbody = rec_lift(rec_var(lambda.body, false, function(n, base) {
         for (var i = 0; i < lambda.argnames.length; ++i) {
           var name = lambda.argnames[i];
           var varentry = vars[i];
@@ -1106,7 +1112,7 @@ function convert_closures(context, thing) {
     }
     
     function check_vars() {
-      function rec(thing, lookup) {
+      function rec(thing, in_nested, lookup) {
         if (thing.kind == "atom") {
           lookup(thing.value); // touch
           return;
@@ -1114,17 +1120,20 @@ function convert_closures(context, thing) {
         
         var let1_props = match_let1(thing);
         if (let1_props) {
-          rec(let1_props.value, lookup);
+          rec(let1_props.value, in_nested, lookup);
           var name = let1_props.name;
-          var varinfo = {
-            name: name,
-            rname: unique_id("var")+"_"+filter_string(name),
-            accessed_from_sub: false,
-            thing: let1_props.thing
+          var varinfo = null;
+          if (!in_nested) {
+            varinfo = {
+              name: name,
+              rname: unique_id("var")+"_"+filter_string(name),
+              accessed_from_sub: false,
+              thing: let1_props.thing
+            }
+            vars.push(varinfo);
           }
-          vars.push(varinfo);
-          rec(let1_props.body, function(n, track) {
-            if (n == let1_props.name) {
+          rec(let1_props.body, in_nested, function(n, track) {
+            if (!in_nested && n == let1_props.name) {
               if (track) varinfo.accessed_from_sub = true;
               return null;
             }
@@ -1135,7 +1144,7 @@ function convert_closures(context, thing) {
         
         var lambda_props = match_lambda(thing);
         if (lambda_props) {
-          rec(lambda_props.body, function(n, track) {
+          rec(lambda_props.body, true, function(n, track) {
             for (var i = 0; i < lambda_props.argnames.length; i++) {
               if (lambda_props.argnames[i] == n) return null; // mask
             }
@@ -1145,9 +1154,9 @@ function convert_closures(context, thing) {
           return;
         }
         
-        base_recurse(thing, function(thing) { rec(thing, lookup); return thing; });
+        base_recurse(thing, function(thing) { rec(thing, in_nested, lookup); return thing; });
       }
-      rec(lambda.body, function(n, track) {
+      rec(lambda.body, false, function(n, track) {
         for (var i = 0; i < lambda.argnames.length; ++i) {
           var name = lambda.argnames[i];
           if (name == n) {
