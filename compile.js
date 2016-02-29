@@ -150,7 +150,7 @@ function js_tag(type, value) {
       throw "what why can't I tag init '"+value.value+"'";
     } else if (value.kind == "bool") {
       value = value.value;
-      type = "int";
+      type = "bool";
     } else throw "how tag "+value.kind;
   }
   if (type == "float") return "+"+paren_maybe(value, "+");
@@ -186,7 +186,7 @@ function js_typelist(thing) {
       return ["float", "double"];
     }
   } else if (thing.kind == "bool") {
-    return ["int"];
+    return ["bool"];
   } else throw "what is typelist of "+thing.kind;
 }
 
@@ -557,7 +557,7 @@ function reconstruct_by_types(js, types, vars) {
 
 function js_type(thing) {
   if (thing.kind == "number") return "float";
-  if (thing.kind == "bool") return "int";
+  if (thing.kind == "bool") return "bool";
   if (thing.kind == "variable") return thing.type;
   if (thing.kind == "struct") return thing.type;
   if (thing.kind == "vector") return thing.type;
@@ -604,7 +604,7 @@ function reconstruct(js, thing, array) {
   var type = null;
   if (thing.kind == "vector") type = "vector";
   else if (thing.kind == "number") type = "float";
-  else if (thing.kind == "bool") type = "int";
+  else if (thing.kind == "bool") type = "bool";
   else if (thing.kind == "variable") type = thing.type;
   else if (thing.kind == "struct") type = "struct";
   else if (thing.kind == "frame") type = "frame";
@@ -614,15 +614,7 @@ function reconstruct(js, thing, array) {
   else if (thing.kind == "function-poly") type = "function-poly";
   else fail(thing, "how to reconstruct "+typeof thing+" "+thing.kind);
   
-  if (thing.kind == "bool") {
-    if (array.length < 1) fail(thing, "reconstruct:0 internal error");
-    if (array[0].kind != "variable" || array[0].type != "int") throw ("can't reconstruct bool from "+JSON.stringify(array[0]));
-    return {
-      value: js.mkVar(js_tag(array[0])+" != 0", "bool", "bool"),
-      rest: array.slice(1)};
-  }
-  
-  if (type == "float" || type == "int") {
+  if (type == "float" || type == "int" || type == "bool") {
     if (array.length < 1) fail(thing, "reconstruct:1 internal error");
     if (array[0].kind != "variable" || array[0].type != type) throw ("can't reconstruct "+type+" from "+JSON.stringify(array[0]));
     return {
@@ -2802,21 +2794,6 @@ function eq(v1, v2) {
   return v1 == v2;
 }
 
-function mkRes(context, thing) {
-  var
-    zero = {kind: "variable", type: "float", value: "0"},
-    success = {kind: "variable", type: "bool", value: "0"},
-    distance = zero,
-    vectype = {kind: "vector", base: "float", size: 3},
-    reflect = mkVec_direct(vectype, [zero, zero, zero]),
-    emit = mkVec_direct(vectype, [zero, zero, zero]),
-    normal = mkVec_direct(vectype, [zero, zero, zero]);
-  
-  return make_struct_on("stack", context, thing,
-    ["success", "distance", "reflect", "emit", "normal"],
-    [success, distance, reflect, emit, normal]);
-}
-
 function defun(context, name, arity, fun) {
   if (typeof arity == "function") {
     fun = arity; arity = null;
@@ -3209,7 +3186,6 @@ function setupSysctx() {
   }
   defun(sysctx, "make-ray", function(context, thing, array) { return make_ray_fn(context, thing, array, "stack"); });
   defun(sysctx, "alloc-ray", function(context, thing, array) { return make_ray_fn(context, thing, array, "heap"); });
-  defun(sysctx, "make-res", 0, function(context, thing) { return mkRes(context, thing); });
   defun(sysctx, "sqrt", 1, function(context, thing, value) {
     if (value.kind == "variable" && value.type == "float") {
       return context.js.mkVar("sqrt("+js_tag(value)+")", "float", "sqrt");

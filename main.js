@@ -141,6 +141,9 @@ var StorageHandlers = {
           var key = file_id+","+obj.html_url;
           setAnchorState('gist', key);
           MarkEditorsSaved();
+          var a = document.createElement("a")
+          a.href = obj.html_url;
+          logJq($(document.createTextNode('> ')).add($(a).text("Script saved.")).add('<br>'));
         }
       });
     },
