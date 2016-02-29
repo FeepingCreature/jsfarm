@@ -368,7 +368,13 @@ function js_op(op, a, b) {
     a = coerce_int(a);
     b = coerce_int(b);
   }
-  return paren_maybe(a, op)+" "+op+" "+paren_maybe(b, op);
+  a = paren_maybe(a, op);
+  b = paren_maybe(b, op);
+  if (op == "%") {
+    // TODO mkVar?
+    return "+(+("+a+" % "+b+") + "+b+") % "+b;
+  }
+  return a+" "+op+" "+b;
 }
 
 // turn a compound expression into an array of primitives
@@ -3427,7 +3433,7 @@ function setupSysctx() {
   defOp("*", function(a, b) { return a*b; });
   defOp("/", function(a, b) { return a/b; });
   
-  defOp("%", function(a, b) { return a%b; });
+  defOp("%", function(a, b) { return ((a%b)+b)%b; });
   
   defOp("&", function(a, b) { return a&b; });
   defOp("|", function(a, b) { return a|b; });
