@@ -114,6 +114,7 @@ function coerce_int(arg) {
 
 function paren_maybe(ex, op) {
   ex = ""+ex;
+  suspect(ex);
   var is_simple_identifier = function(text) {
     return !!text.match(/^[a-zA-Z_][0-9a-zA-Z_]*$/);
   };
@@ -220,14 +221,13 @@ function js_set_at(context, type, base, offs, value) {
     throw ("types not equal in js_set_at - "+JSON.stringify(type)+" vs. "+JSON.stringify(vt));
   }
   
-  if (type == "vec3f") {
-    js.set("float", target.value.x, value.value.x);
-    js.set("float", target.value.y, value.value.y);
-    js.set("float", target.value.z, value.value.z);
-    return;
-  }
-  
   if (typeof type == "object") {
+    if (type.kind == "vector") {
+      for (var i = 0; i < type.size; ++i) {
+        js.set(type.base, target.value[i], value.value[i]);
+      }
+      return;
+    }
     if (type.kind == "frame") {
       js.set("int", target.base.value, value.base.value);
       return;
@@ -277,11 +277,13 @@ function ClosurePointer(type, base, offset) {
 function js_get_at(type, base, offs) {
   offs = offs || 0;
   
-  if (type == "vec3f") {
-    return mkVec3f_direct(
-      js_get_at("float", base, offs+0),
-      js_get_at("float", base, offs+4),
-      js_get_at("float", base, offs+8));
+  if (type.kind == "vector") {
+    var parts = [];
+    var elemsize = js_size({kind: "variable", type: type.base});
+    for (var i = 0; i < type.size; ++i) {
+      parts.push(js_get_at(type.base, base, offs + elemsize * i));
+    }
+    return mkVec_direct(type, parts);
   }
   if (typeof type == "object") {
     if (type.kind == "struct") {
@@ -399,11 +401,12 @@ function flatten(base, thing) {
   if (thing.kind == "variable") {
     return [thing]; // all "variables" are primitive
   }
-  if (thing.kind == "vec3f") {
-    return [
-      {kind: "variable", type: "float", value: thing.value.x},
-      {kind: "variable", type: "float", value: thing.value.y},
-      {kind: "variable", type: "float", value: thing.value.z}];
+  if (thing.kind == "vector") {
+    var vars = [];
+    for (var i = 0; i < thing.type.size; ++i) {
+      vars.push({kind: "variable", type: thing.type.base, value: thing.value[i]});
+    }
+    return vars;
   }
   if (thing.kind == "closure-pointer") {
     return [thing.base.base, thing.fnptr.offset];
@@ -425,8 +428,10 @@ function flatten(base, thing) {
 
 function flatten_type(type) {
   if (type == "float" || type == "int" || type == "bool") return [type];
-  if (type == "vec3f") {
-    return ["float", "float", "float"];
+  if (type.kind == "vector") {
+    var types = [];
+    for (var i = 0; i < type.size; ++i) types.push(type.base);
+    return types;
   }
   if (type.kind == "closure-poly") {
     if (type.base.hasOwnProperty("base")) return ["int"]; // base pointer
@@ -457,7 +462,8 @@ function get_type_signature(thing) {
   if (thing.kind == "variable") return get_type_signature(thing.type);
   if (thing.kind == "number") return "float";
   if (thing.kind == "bool") return "bool";
-  if (thing.kind == "vec3f") return "vec3f";
+  if (thing.kind == "vector" && 'type' in thing) return get_type_signature(thing.type);
+  if (thing.kind == "vector") return "vector_"+thing.size+"_"+thing.base;
   if (thing.kind == "struct") {
     var values = thing.value;
     var parts = [];
@@ -554,7 +560,7 @@ function js_type(thing) {
   if (thing.kind == "bool") return "int";
   if (thing.kind == "variable") return thing.type;
   if (thing.kind == "struct") return thing.type;
-  if (thing.kind == "vec3f") return "vec3f";
+  if (thing.kind == "vector") return thing.type;
   if (thing.kind == "function" || thing.kind == "closure") {
     return thing.type;
   }
@@ -575,7 +581,11 @@ function js_size(thing) {
     if (type == "float" || type == "int" || type == "bool") return 4;
   }
   if (thing.kind == "struct") return thing.type.size;
-  if (thing.kind == "vec3f") return 16;
+  if (thing.kind == "vector") {
+    var res = js_size({kind: "variable", type: thing.type.base}) * thing.type.size;
+    if (res == 12) res = 16; // vec3 are vec4-sized for alignment reasons
+    return res;
+  }
   // if (thing.kind == "function") return 4; // function table offset
   if (thing.kind == "closure-pointer") return 8; // function table offset, heap offset
   if (thing.kind == "function-poly") return 0; // poly function cannot be stored, so encode in type
@@ -592,7 +602,7 @@ function js_size(thing) {
 // equivalent reconstruction of a compound expression
 function reconstruct(js, thing, array) {
   var type = null;
-  if (thing.kind == "vec3f") type = "vec3f";
+  if (thing.kind == "vector") type = "vector";
   else if (thing.kind == "number") type = "float";
   else if (thing.kind == "bool") type = "int";
   else if (thing.kind == "variable") type = thing.type;
@@ -619,15 +629,16 @@ function reconstruct(js, thing, array) {
       value: array[0],
       rest: array.slice(1)};
   }
-  if (type == "vec3f") {
-    if (array.length < 3) fail(thing, "reconstruct:2 internal error");
-    var x = array[0], y = array[1], z = array[2];
-    if (x.kind != "variable" && x.type != "float") throw ("can't reconstruct vector from "+JSON.stringify(x));
-    if (y.kind != "variable" && y.type != "float") throw ("can't reconstruct vector from "+JSON.stringify(y));
-    if (z.kind != "variable" && z.type != "float") throw ("can't reconstruct vector from "+JSON.stringify(z));
+  if (type == "vector") {
+    if (array.length < thing.type.size) fail(thing, "reconstruct:2 internal error");
+    var vars = array.slice(0, thing.type.size);
+    for (var i = 0; i < vars.length; ++i) {
+      var v = vars[i];
+      if (v.kind != "variable" || v.type != thing.type.base) throw ("can't reconstruct vector from "+JSON.stringify(v));
+    }
     return {
-      value: {kind: "vec3f", value: {x: x.value, y: y.value, z: z.value}},
-      rest: array.slice(3)};
+      value: mkVec_direct(thing.type, vars),
+      rest: array.slice(thing.type.size)};
   }
   if (type == "frame") {
     if (!thing.hasOwnProperty("base")) {
@@ -1314,22 +1325,23 @@ function sexpr_dump(thing) {
   else return "magical unicorn "+JSON.stringify(thing);
 }
 
-function mkVec3f_direct(x, y, z) {
-  if (x.type != "float")
-    throw ("vector must be made of float, not "+x.type);
-  if (y.type != "float")
-    throw ("vector must be made of float, not "+y.type);
-  if (z.type != "float")
-    throw ("vector must be made of float, not "+z.type);
-  
-  return {kind: "vec3f", value: {x: x.value, y: y.value, z: z.value}};
+function mkVec_direct(type, array) {
+  var values = new Array(array.length);
+  for (var i = 0; i < type.size; ++i) {
+    if (array[i].type != type.base) {
+      throw ("vector must be made of '"+type.base+"', not '"+array[i].type+"'");
+    }
+    values[i] = array[i].value;
+  }
+  return {kind: "vector", type: type, value: values};
 }
 
-function mkVec3f(js, x, y, z) {
-  var vx = js.mkVar(x, "float", "x");
-  var vy = js.mkVar(y, "float", "y");
-  var vz = js.mkVar(z, "float", "z");
-  return mkVec3f_direct(vx, vy, vz);
+function mkVec(js, type, vars) {
+  var nvars = [];
+  for (var i = 0; i < vars.length; ++i) {
+    nvars.push(js.mkVar(vars[i], type.base, "v"+i));
+  }
+  return mkVec_direct(type, nvars);
 }
 
 function copy(js, thing) {
@@ -1344,9 +1356,9 @@ function copy(js, thing) {
   if (thing.kind == "bool") {
     return js.mkVar(thing.value, "bool", "copy");
   }
-  if (thing.kind == "vec3f") {
+  if (thing.kind == "vector") {
     js.nop();
-    return mkVec3f(js, thing.value.x, thing.value.y, thing.value.z);
+    return mkVec(js, thing.type, thing.value);
   }
   if (thing.kind == "closure-poly") {
     var res = flatclone(thing);
@@ -1474,10 +1486,13 @@ function js_set(js, thing, target, value) {
     js_set(js, thing, target.fnptr.offset, value.fnptr.offset);
     return;
   }
-  if (target.kind == "vec3f" && value.kind == "vec3f") {
-    js.set("float", target.value.x, value.value.x);
-    js.set("float", target.value.y, value.value.y);
-    js.set("float", target.value.z, value.value.z);
+  if (target.kind == "vector" && value.kind == "vector") {
+    if (JSON.stringify(target.type) != JSON.stringify(value.type)) {
+      fail(thing, "cannot assign: vector type mismatch, "+JSON.stringify(target.type)+" != "+JSON.stringify(value.type));
+    }
+    for (var i = 0; i < target.type.size; ++i) {
+      js.set(target.type.base, target.value[i], value.value[i]);
+    }
     return;
   }
   fail(thing, "unimplemented: "+sexpr_dump(thing)+" -- "+JSON.stringify(target)+" = "+JSON.stringify(value));
@@ -1518,18 +1533,25 @@ function build_js_call(thing, js, fname, ret_type, flat_args) {
   if (ret_type == "float" || ret_type == "bool" || ret_type == "int") {
     ret_value = js.mkVar(call, ret_type, "retval");
   }
-  else if (ret_type == "vec3f") {
-    js.addLine(call+";");
-    // immediately copy the return vals elsewhere
-    ret_value = copy(js, {
-      kind: "vec3f",
-      value: {
-        x: {kind: "variable", type: "float", value: "_rvec_x"},
-        y: {kind: "variable", type: "float", value: "_rvec_y"},
-        z: {kind: "variable", type: "float", value: "_rvec_z"}}});
-  }
   else if (ret_type == null || ret_type == "void") {
     js.addLine(call+";");
+  }
+  else if (ret_type.kind == "vector") {
+    js.addLine(call+";");
+    if (ret_type.base != "float" || ret_type.size > 4) {
+      fail(thing, "todo return vector of size > 4 or type != float");
+    }
+    var array = [];
+    var names = ["_rvec_x", "_rvec_y", "_rvec_z", "_rvec_w"];
+    for (var i = 0; i < ret_type.size; ++i) {
+      array.push(names[i]);
+    }
+    // immediately copy the return vals elsewhere
+    ret_value = copy(js, {
+      kind: "vector",
+      type: ret_type,
+      value: array
+    });
   }
   else if (ret_type.kind == "struct") {
     var ret_base = js.mkVar(call, "int", "ret_base");
@@ -1704,11 +1726,15 @@ function lambda_internal(context, thing, rest) {
         js.addLine("SP = BP;");
         js.addLine("return "+js_tag(res)+";");
       }
-      else if (res.kind == "vec3f") {
-        ret_type = "vec3f";
-        js.set("float", "_rvec_x", res.value.x);
-        js.set("float", "_rvec_y", res.value.y);
-        js.set("float", "_rvec_z", res.value.z);
+      else if (res.kind == "vector") {
+        ret_type = res.type;
+        var rplaces = ["_rvec_x", "_rvec_y", "_rvec_z", "rvec_w"];
+        if (res.type.size > 4 || res.type.base != "float") {
+          fail(thing, "todo return vector of size > 4 or type != float");
+        }
+        for (var i = 0; i < res.type.size; ++i) {
+          js.set(res.type.base, rplaces[i], res.value[i]);
+        }
         
         js.addLine("SP = BP;");
         js.addLine("return");
@@ -1824,13 +1850,17 @@ function lambda_internal(context, thing, rest) {
       js.addLine("return "+js_tag(res)+";");
       ret_type = "float";
     }
-    else if (res.kind == "vec3f") {
-      ret_type = "vec3f";
+    else if (res.kind == "vector") {
+      ret_type = res.type;
       
-      js.set("float", "_rvec_x", res.value.x);
-      js.set("float", "_rvec_y", res.value.y);
-      js.set("float", "_rvec_z", res.value.z);
-      ret_type = "vec3f";
+      if (res.type.size > 4 || res.type.base != "float") {
+        fail(thing, "todo return vector of size > 4 or type != float");
+      }
+      
+      var names = ["_rvec_x", "_rvec_y", "_rvec_z", "_rvec_w"];
+      for (var i = 0; i < ret_type.size; ++i) {
+        js.set(res.type.base, names[i], res.value[i]);
+      }
       
       js.addLine("SP = BP;");
       js.addLine("return");
@@ -2017,26 +2047,22 @@ function if_internal(context, thing, rest) {
           merge_amend(
             function() { js.set(case1.type, phi.value, case1.value); },
             function() { js.set(case1.type, phi.value, case2.value); });
-        } else if (case1.kind == "vec3f" && case2.kind == "vec3f") {
+        } else if (case1.kind == "vector" && case2.kind == "vector") {
+          if (JSON.stringify(case1.type) != JSON.stringify(case2.type)) {
+            fail(thing, "type mismatch between structs in if branches: "+JSON.stringify(case1.type)+" and "+JSON.stringify(case2.type));
+          }
           js.unindent();
-          phi = mkVec3f(js,
-            {kind: "variable", type: "float", value: null},
-            {kind: "variable", type: "float", value: null},
-            {kind: "variable", type: "float", value: null});
-          
-          var val = phi.value;
+          var nulls = [];
+          for (var i = 0; i < case1.type.size; ++i) {
+            nulls.push({kind: "variable", type: "float", value: null});
+          }
+          phi = mkVec(js, case1.type, nulls);
           merge_amend(
             function() {
-              var c1v = case1.value, c2v = case2.value;
-              js.set("float", val.x, c1v.x);
-              js.set("float", val.y, c1v.y);
-              js.set("float", val.z, c1v.z);
+              js_set(js, thing, phi, case1);
             },
             function() {
-              var c2v = case2.value;
-              js.set("float", val.x, c2v.x);
-              js.set("float", val.y, c2v.y);
-              js.set("float", val.z, c2v.z);
+              js_set(js, thing, phi, case2);
             });
         } else if (case1.kind == "struct" && case2.kind == "struct") {
           if (JSON.stringify(case1.type) != JSON.stringify(case2.type)) {
@@ -2781,9 +2807,10 @@ function mkRes(context, thing) {
     zero = {kind: "variable", type: "float", value: "0"},
     success = {kind: "variable", type: "bool", value: "0"},
     distance = zero,
-    reflect = mkVec3f_direct(zero, zero, zero),
-    emit = mkVec3f_direct(zero, zero, zero),
-    normal = mkVec3f_direct(zero, zero, zero);
+    vectype = {kind: "vector", base: "float", size: 3},
+    reflect = mkVec_direct(vectype, [zero, zero, zero]),
+    emit = mkVec_direct(vectype, [zero, zero, zero]),
+    normal = mkVec_direct(vectype, [zero, zero, zero]);
   
   return make_struct_on("stack", context, thing,
     ["success", "distance", "reflect", "emit", "normal"],
@@ -2871,10 +2898,13 @@ function setupSysctx() {
     // if (value == null) throw "value is null";
     function fmt(value) {
       if (value == null) return "'null'";
-      if (value.kind == "vec3f") {
-        return "'vec3f('+("+value.value.x+")+', '"+
-          "+("+value.value.y+")+', '"+
-          "+("+value.value.z+")+')'";
+      if (value.kind == "vector") {
+        var parts = [];
+        for (var i = 0; i < value.type.size; ++i) {
+          parts.push("("+fmt(value.values[i])+")");
+        }
+        if (parts.length == 0) return "'vector()'";
+        return "'vector('+"+parts.join("+', '+")+"+')'";
       }
       if (value.kind == "atom") {
         return "'"+jsStringEscape(value.value)+"'";
@@ -3064,9 +3094,12 @@ function setupSysctx() {
     return {kind: "number", value: i};
   }
   
-  // a vec3f is a bundle of three variables
+  // a vector is a bundle of n variables
   defun(sysctx, "vec3f", function(context, thing, array) {
-    var fun = function(x, y, z) { return mkVec3f(js, x, y, z); };
+    var type = {kind: "vector", base: "float", size: 3};
+    var fun = function(x, y, z) {
+      return mkVec(js, type, [x, y, z]);
+    };
     var js = context.js;
     if (!js) {
       // TODO assert x,y,z are numbers
@@ -3075,7 +3108,7 @@ function setupSysctx() {
         x = {kind: "variable", type: "float", value: x.value};
         y = {kind: "variable", type: "float", value: y.value};
         z = {kind: "variable", type: "float", value: z.value};
-        return mkVec3f_direct(x, y, z);
+        return mkVec_direct(type, [x, y, z]);
       };
     }
     if (array.length == 3) {
@@ -3103,13 +3136,16 @@ function setupSysctx() {
       
       if (base == null) fail(thing.value[i], "key not found");
       
-      if (base.kind == "vec3f") {
-        if (name == "x")
-          base = {kind: "variable", type: "float", value: base.value.x};
-        else if (name == "y")
-          base = {kind: "variable", type: "float", value: base.value.y};
-        else if (name == "z")
-          base = {kind: "variable", type: "float", value: base.value.z};
+      if (base.kind == "vector") {
+        var type = base.type;
+        if (type.size > 0 && name == "x")
+          base = {kind: "variable", type: type.base, value: base.value[0]};
+        else if (type.size > 1 && name == "y")
+          base = {kind: "variable", type: type.base, value: base.value[1]};
+        else if (type.size > 2 && name == "z")
+          base = {kind: "variable", type: type.base, value: base.value[2]};
+        else if (type.size > 3 && name == "w")
+          base = {kind: "variable", type: type.base, value: base.value[3]};
         else fail(thing, "undefined vector property '"+name+"'");
       } else if (base.kind == "struct") {
         if (base.value.hasOwnProperty(name)) {
@@ -3153,9 +3189,10 @@ function setupSysctx() {
   function make_ray_fn(context, thing, array, location) {
     if (array.length > 1) fail(thing, "make-ray expected none or one parameter");
     
-    var zero = {kind: "variable", type: "float", value: "0"}; // lol
-    var pos = mkVec3f_direct(zero, zero, zero)
-        dir = mkVec3f_direct(zero, zero, zero),
+    var type = {kind: "vector", base: "float", size: 3};
+    var zero = {kind: "variable", type: "float", value: "0"};
+    var pos = mkVec_direct(type, [zero, zero, zero])
+        dir = mkVec_direct(type, [zero, zero, zero]),
         flags = {kind: "variable", type: "int", value: "3"};
     
     if (array.length == 1) {
@@ -3244,7 +3281,7 @@ function setupSysctx() {
         
         if (!js) thing.fail("invalid arguments to comparison in interpreted mode: "+JSON.stringify(v1)+" and "+JSON.stringify(v2));
         
-        if (v1.kind == "vec3f" || v2.kind == "vec3f") fail(thing, "cannot compare vectors: "+v1.kind+" with "+v2.kind);
+        if (v1.kind == "vector" || v2.kind == "vector") fail(thing, "cannot compare vectors: "+JSON.stringify(v1.type)+" with "+JSON.stringify(v2.type));
         
         var jsop = opname;
         if (opname == "=") jsop = "==";
@@ -3284,7 +3321,7 @@ function setupSysctx() {
   function defOp(opname, opfun) {
     defun(sysctx, opname, function(context, thing, array) {
       var js = context.js;
-      if (array.length === 0)
+      if (array.length == 0)
         thing.fail("'"+opname+"' expects more than one argument");
       var res = null;
       for (var i = 1; i < thing.value.length; ++i) {
@@ -3294,32 +3331,40 @@ function setupSysctx() {
       }
       
       function vecIsNumbers(obj) {
-        if (obj.kind == "vec3f") {
-          return isFloat(obj.value.x) && isFloat(obj.value.y) && isFloat(obj.value.z);
+        if (obj.kind == "vector") {
+          for (var i = 0; i < obj.type.size; ++i) {
+            if (!isFloat(obj.value[i])) return false;
+          }
+          return true;
         }
         throw ("obj is not vec: "+typeof obj);
       }
       
-      var allNumbers = false, anyVecs = false;;
+      var allNumbers = false, anyVecs = false;
       if (array[0].kind == "number") {
         allNumbers = true;
         res = array[0].value;
       }
-      else if (array[0].kind == "vec3f") {
+      else if (array[0].kind == "vector") {
         anyVecs = true;
         if (vecIsNumbers(array[0])) {
           allNumbers = true;
-          res = array[0].value;
-          res = {x: res.x, y: res.y, z: res.z}; // clone vector
-        }
+          res = array[0].value.slice(); // clone vector
+        } else res = new Array(array[0].type.size);
       }
       for (var i = 1; i < array.length; ++i) {
         var oper = array[i];
-        if (oper.kind == "vec3f") {
+        if (oper.kind == "vector") {
           // promote to vector
-          if (!anyVecs) res = {x: res, y: res, z: res};
-          if (!anyVecs) if (res.x == null) throw "null";
-           
+          if (!anyVecs) if (res == null) throw "null";
+          if (!anyVecs) {
+            var nres = [];
+            for (var k = 0; k < oper.type.size; ++k) nres.push(res);
+            res = nres;
+          } else if (oper.type.size != res.length) {
+            fail(thing, "mismatched vector size: "+res.length+" and "+oper.type.size);
+          }
+          
           anyVecs = true;
           if (!vecIsNumbers(oper)) {
             allNumbers = false;
@@ -3331,14 +3376,12 @@ function setupSysctx() {
           if (!anyVecs) {
             res = opfun(res, oper.value);
           } else {
-            if (oper.kind == "vec3f") {
-              res.x = opfun(res.x, oper.value.x);
-              res.y = opfun(res.y, oper.value.y);
-              res.z = opfun(res.z, oper.value.z);
+            if (oper.kind == "vector") {
+              for (var k = 0; k < res.length; ++k) 
+                res[k] = opfun(res[k], oper.value[k]);
             } else {
-              res.x = opfun(res.x, oper.value);
-              res.y = opfun(res.y, oper.value);
-              res.z = opfun(res.z, oper.value);
+              for (var k = 0; k < res.length; ++k) 
+                res[k] = opfun(res[k], oper.value);
             }
           }
         }
@@ -3346,43 +3389,44 @@ function setupSysctx() {
       
       if (allNumbers) {
         if (!anyVecs) return { kind: "number", value: res };
-        else return { kind: "vec3f", value: res };
+        else {
+          return { kind: "vector", type: {kind: "vector", base: "float", size: res.length}, value: res };
+        }
       }
       
       if (!js) fail(thing, "unimplemented: interpreted '"+opname+"' "+JSON.stringify(array));
       
       if (anyVecs) {
         // split operation over vector
-        var rx = null, ry = null, rz = null;
-        if (array[0].kind == "vec3f") {
+        if (res.length == 0) throw "internal error";
+        var rv = new Array(res.length);
+        if (array[0].kind == "vector") {
           var vec = array[0].value;
-          rx = js_tag("float", vec.x);
-          ry = js_tag("float", vec.y);
-          rz = js_tag("float", vec.z);
+          for (var i = 0; i < res.length; ++i) 
+            rv[i] = js_tag(array[0].type.base, vec[i]);
         } else {
           var fv = js_tag("float", copy(js, array[0]).value);
-          rx = fv;
-          ry = fv;
-          rz = fv;
+          for (var i = 0; i < rv.length; ++i)
+            rv[i] = fv;
         }
         for (var i = 1; i < array.length; ++i) {
           var oper = array[i];
-          if (oper.kind == "vec3f") {
-            rx = js_op(opname, rx, js_tag("float", oper.value.x));
-            ry = js_op(opname, ry, js_tag("float", oper.value.y));
-            rz = js_op(opname, rz, js_tag("float", oper.value.z));
+          if (oper.kind == "vector") {
+            for (var k = 0; k < rv.length; ++k) {
+              rv[k] = js_op(opname, rv[k], js_tag(oper.type.base, oper.value[k]));
+            }
           } else if (oper.kind == "variable" && oper.type == "float" ||
                      oper.kind == "number"
           ) {
             var opn = js_tag_cast("float", copy(js, oper));
-            rx = js_op(opname, rx, opn);
-            ry = js_op(opname, ry, opn);
-            rz = js_op(opname, rz, opn);
+            for (var k = 0; k < rv.length; ++k) {
+              rv[k] = js_op(opname, rv[k], opn);
+            }
           } else {
             thing.fail("unimplemented: vop "+JSON.stringify(oper));
           }
         }
-        res = {kind: "vec3f", value: {x: rx, y: ry, z: rz}};
+        res = {kind: "vector", type: {kind: "vector", base: "float", size: rv.length}, value: rv};
       } else {
         var combined_op = null;
         for (var i = 0; i < array.length; ++i) {
@@ -3435,6 +3479,12 @@ function setupSysctx() {
   defun(sysctx, "typeof", 1, function(context, thing, value) {
     if (value.kind == "struct") return value.type;
     fail(thing, "unimplemented: typeof "+JSON.stringify(value));
+  });
+  
+  defun(sysctx, "vector-type", 2, function(context, thing, base, size) {
+    if (base.kind != "atom") fail(thing, "vector base type must be primitive type");
+    if (size.kind != "number") fail(thing, "vector size must be number");
+    return {kind: "vector", base: base.value, size: size.value|0};
   });
   
   defun(sysctx, "function-type", 2, function(context, thing, argtypes, ret) {
@@ -3548,6 +3598,7 @@ function compile(files) {
   jsfile.addLine("var _rvec_x = 0.0;");
   jsfile.addLine("var _rvec_y = 0.0;");
   jsfile.addLine("var _rvec_z = 0.0;");
+  jsfile.addLine("var _rvec_w = 0.0;");
   
   // scratch space for closure pointer return
   jsfile.addLine("var _cp_base = 0;");
@@ -3776,7 +3827,7 @@ function compile(files) {
   ));
   
   var xvar = js_tag(inside_args[0]), yvar = js_tag(inside_args[1]), ivar = js_tag(inside_args[2]);
-  var rvar = js_tag("double", vec.value.x), gvar = js_tag("double", vec.value.y), bvar = js_tag("double", vec.value.z);
+  var rvar = js_tag("double", vec.value[0]), gvar = js_tag("double", vec.value[1]), bvar = js_tag("double", vec.value[2]);
   
   jsfile.addLine("hit(~~"+xvar+", ~~"+yvar+", "+ivar+", "+rvar+", "+gvar+", "+bvar+");");
   
