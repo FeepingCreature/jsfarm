@@ -3185,29 +3185,6 @@ function setupSysctx() {
   defun(sysctx, "list", function(context, thing, array) {
     return {kind: "list", fail: thing.fail, value: array};
   });
-  function make_ray_fn(context, thing, array, location) {
-    if (array.length > 1) fail(thing, "make-ray expected none or one parameter");
-    
-    var type = {kind: "vector", base: "float", size: 3};
-    var zero = {kind: "variable", type: "float", value: "0"};
-    var pos = mkVec_direct(type, [zero, zero, zero])
-        dir = mkVec_direct(type, [zero, zero, zero]),
-        flags = {kind: "variable", type: "int", value: "3"};
-    
-    if (array.length == 1) {
-      var srcray = array[0];
-      if (srcray.kind != "struct" || !srcray.value.hasOwnProperty("flags")) {
-        fail(thing, "expected ray as parameter to make-ray");
-      }
-      flags = srcray.value.flags;
-    }
-    
-    return make_struct_on(location, context, thing,
-      ["pos", "dir", "flags"],
-      [pos, dir, flags]);
-  }
-  defun(sysctx, "make-ray", function(context, thing, array) { return make_ray_fn(context, thing, array, "stack"); });
-  defun(sysctx, "alloc-ray", function(context, thing, array) { return make_ray_fn(context, thing, array, "heap"); });
   defun(sysctx, "sqrt", 1, function(context, thing, value) {
     if (value.kind == "variable" && value.type == "float") {
       return context.js.mkVar("sqrt("+js_tag(value)+")", "float", "sqrt");
