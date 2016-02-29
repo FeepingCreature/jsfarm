@@ -2274,6 +2274,10 @@ function makestruct_internal(context, thing, rest, location) {
   return make_struct_on(location, context, thing, names_arr, values_arr);
 }
 
+function can_call(thing) {
+  return thing.kind == "function-poly" || thing.kind == "closure-poly" || thing.kind == "closure-pointer";
+}
+
 function eval_builtin(context, thing) {
   if (thing.kind != "list") throw "internal error";
   var list = thing.value;
@@ -2429,7 +2433,7 @@ function Context(sup, js) {
       if (op == null) {
         fail(list[0], "operator not found: "+sexpr_dump(list[0])+" at "+this.info());
       }
-      if (op.kind == "function-poly" || op.kind == "closure-poly" || op.kind == "closure-pointer") {
+      if (can_call(op)) {
         var lex_ctx = new Context(this);
         var args = [];
         
@@ -2957,6 +2961,9 @@ function setupSysctx() {
   });
   defun(sysctx, "struct?", "1", function(context, thing, value) {
     return {kind: "bool", value: value.kind == "struct"};
+  });
+  defun(sysctx, "callable?", "1", function(context, thing, value) {
+    return {kind: "bool", value: can_call(value)};
   });
   // first of list of size 1
   defun(sysctx, "first1", "1", function(context, thing, value) {
