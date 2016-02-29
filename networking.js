@@ -695,7 +695,7 @@ function RenderWorkset(connection) {
             
             // this might be false if we're removing peers because of errors
             // which for some reason might trigger multiple times.
-            if (self.connections.hasOwnProperty(id)) {
+            if (id in self.connections) {
               if (!firstExchangeOnConnection) {
                 self.progress_ui.onCloseConnection(id);
               }

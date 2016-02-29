@@ -172,7 +172,7 @@ function storeAnchor(obj) {
   for (var key in obj) if (obj.hasOwnProperty(key)) {
     anchor_array.push(key+"="+obj[key]);
   }
-  window.location.href = "#"+anchor_array.join(";");
+  window.location = "#"+anchor_array.join(";");
 }
 
 function loadAnchor() {
