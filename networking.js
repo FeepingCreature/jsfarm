@@ -78,7 +78,7 @@ function RobinQueue(limit) {
       this.scores[task.origin] = 0;
     }
     var msg = task.msg.message;
-    var cost = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from) * task.default_obj.quality;
+    var cost = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from) * (task.i_to - task.i_from);
     this.scores[task.origin] -= cost; // penalize
   }
   this.popTask = function() {
@@ -127,11 +127,13 @@ function RobinQueue(limit) {
 }
 
 /** @constructor */
-function Range(x_from, y_from, x_to, y_to) {
+function Range(x_from, y_from, i_from, x_to, y_to, i_to) {
   this.x_from = x_from;
   this.y_from = y_from;
+  this.i_from = i_from;
   this.x_to = x_to;
   this.y_to = y_to;
+  this.i_to = i_to;
   this.PACK_AS_OBJECT = null;
 }
 
@@ -146,7 +148,7 @@ function WorkTask(range) {
   this.message = range;
   this.sclone = function() {
     var msg = this.message;
-    return new WorkTask(new Range(msg.x_from, msg.y_from, msg.x_to, msg.y_to));
+    return new WorkTask(new Range(msg.x_from, msg.y_from, msg.i_from, msg.x_to, msg.y_to, msg.i_to));
   };
 }
 
@@ -174,7 +176,7 @@ var global_help_stats = {
 /** @constructor */
 function HelpStats() {
   this.div = $('<div class="helping">&gt; Incoming connection.</div>');
-  this.pixels_helped = 0;
+  this.samples_helped = 0;
   this.jq_peername = null;
   this.was_logged = false;
   this.first_result_submitted = true;
@@ -187,7 +189,7 @@ function HelpStats() {
   this.onSendResult = function(samples) {
     if (this.killed) return;
     
-    this.pixels_helped += samples;
+    this.samples_helped += samples;
     
     var t = time();
     if (t - this.t_last_updated > 100) {
@@ -203,7 +205,7 @@ function HelpStats() {
         logJq(div);
         this.was_logged = true;
       }
-      this.dom_samples_helped.nodeValue = this.pixels_helped.toLocaleString();
+      this.dom_samples_helped.nodeValue = this.samples_helped.toLocaleString();
     }
     
     if (this.first_result_submitted) {
@@ -263,7 +265,7 @@ function ServerConnection() {
         delete wrapper.onComplete;
         
         var pixels = data.buffer.byteLength / 4;
-        con.helpstats.onSendResult(task.default_obj.quality * pixels);
+        con.helpstats.onSendResult((msg.message.i_to - msg.message.i_from) * pixels);
         
         // worker has gone idle, maybe we can assign a queued task?
         self.checkQueue();
@@ -547,7 +549,7 @@ function RenderWorkset(connection) {
   
   this.tasks = [];
   this.task_defaults = {};
-  this.progress_ui = new ProgressUI(function() { return self.task_defaults.dw * self.task_defaults.dh; });
+  this.progress_ui = new ProgressUI(function() { return self.task_defaults.dw * self.task_defaults.dh * self.task_defaults.di; });
   
   this.peerlist = [];
   this.peerlist_last_updated = null;
@@ -656,11 +658,11 @@ function RenderWorkset(connection) {
           self.onTaskDone(msg, resultInfo);
           self.progress_ui.onTaskCompleted(task);
           
-          var pixels_rendered = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from);
+          var samples_rendered = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from) * (msg.i_to - msg.i_from);
           var time_taken = timer.elapsed() / 1000;
-          self.getPerfEstimatorFor(id).feedback(pixels_rendered, time_taken);
+          self.getPerfEstimatorFor(id).feedback(samples_rendered, time_taken);
           
-          // log("done: "+timer.elapsed()+" for "+(msg.x_to - msg.x_from) * (msg.y_to - msg.y_from));
+          // log("done: "+timer.elapsed()+" for "+(msg.x_to - msg.x_from) * (msg.y_to - msg.y_from) * (msg.i_to - msg.i_from));
           delete tasksInFlight[task.id];
           self.checkAreWeDone();
         };
@@ -920,7 +922,7 @@ function RenderWorkset(connection) {
                   exchanges[channel].task = task;
                   task.channel = channel;
                   
-                  // log(id, "submit task", channel, ":", task.message.x_from, task.message.y_from);
+                  // log(id, "submit task", channel, ":", task.message.x_from, task.message.y_from, task.message.i_from);
                   // log_id(id, "task", channel, "submitting");
                   
                   var if_task_accepted_body = function(cps) {
@@ -971,8 +973,10 @@ function RenderWorkset(connection) {
                         var resultInfo = {
                           x_from: task.message.x_from,
                           y_from: task.message.y_from,
+                          i_from: task.message.i_from,
                           x_to: task.message.x_to,
                           y_to: task.message.y_to,
+                          i_to: task.message.i_to,
                           data: data
                         };
                         
@@ -1102,7 +1106,8 @@ function RenderWorkset(connection) {
     var msg = task.message;
     var dw = this.task_defaults.dw, dh = this.task_defaults.dh;
     var task_pixels = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from);
-    var estim_seconds_for_task = this.getPerfEstimatorFor(id).estimate(task_pixels);
+    var task_samples = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from) * (msg.i_to - msg.i_from);
+    var estim_seconds_for_task = this.getPerfEstimatorFor(id).estimate(task_samples);
     var max_seconds_per_task = 10;
     var must_split = msg.x_to > dw || msg.y_to > dh; // invalid as-is
     if (!must_split && (estim_seconds_for_task <= max_seconds_per_task || task_pixels == 1)) return false;

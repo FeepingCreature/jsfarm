@@ -22,20 +22,28 @@ function is_pot(i) {
 
 var global_ram = new ArrayBuffer(1024*32768);
 
-var arraycache = {}; // we only use pot ranges, so this should be a low number
+var arraycache_u8 = {}; // we only use pot ranges, so this should be a low number
 function get_uint8array(size) {
-  if (!arraycache.hasOwnProperty(size)) {
-    arraycache[size] = new Uint8Array(size);
+  if (!arraycache_u8.hasOwnProperty(size)) {
+    arraycache_u8[size] = new Uint8Array(size);
   }
-  return arraycache[size];
+  return arraycache_u8[size];
+}
+
+var arraycache_float = {}; // we only use pot ranges, so this should be a low number
+function get_floatarray(size) {
+  if (!arraycache_float.hasOwnProperty(size)) {
+    arraycache_float[size] = new Float32Array(size);
+  }
+  return arraycache_float[size].fill(0);
 }
 
 onmessage = function(e) {
   try {
     var x_from = e.data.x_from, x_to = e.data.x_to;
     var y_from = e.data.y_from, y_to = e.data.y_to;
-    var dw = e.data.dw, dh = e.data.dh;
-    var quality = e.data.quality;
+    var i_from = e.data.i_from, i_to = e.data.i_to;
+    var dw = e.data.dw, dh = e.data.dh, di = e.data.di;
     var s2src = e.data.source;
     
     if (dw > 4096 || dh > 4096 || dw < 0 || dh < 0) throw "size limits exceeded";
@@ -47,7 +55,7 @@ onmessage = function(e) {
     if (!is_pot(width) || !is_pot(height)) throw "render range must be power-of-two sized";
     if (width != height) throw "render range must be quadratic";
     
-    var settings = {dw: dw, dh: dh, quality: quality};
+    var settings = {dw: dw, dh: dh, di: di};
     
     if (JSON.stringify(settings) != JSON.stringify(fncache.settings) || s2src != fncache.source) {
       var files = splitSrc(s2src);
@@ -57,7 +65,8 @@ onmessage = function(e) {
       
       var config = {};
       
-      var hit = function(x, y, success, r, g, b) {
+      // i is ignored - we make the safe assumption that you'll just pass every i in the range once
+      var hit = function(x, y, i, r, g, b) {
         config.count++;
         
         var width = config.x_to - config.x_from;
@@ -69,18 +78,12 @@ onmessage = function(e) {
           config.last_t = t;
         }
         
-        if (!success) {
-          r = 0.25;
-          g = 0;
-          b = 0;
-        }
         var base = (y - config.y_from) * width + (x - config.x_from);
         var array = config.array;
         if (base >= 0 && base < array.length) {
-          array[base*4 + 0] = Math.max(0, Math.min(255, r * 255));
-          array[base*4 + 1] = Math.max(0, Math.min(255, g * 255));
-          array[base*4 + 2] = Math.max(0, Math.min(255, b * 255));
-          array[base*4 + 3] = 255;
+          array[base*4 + 0] += Math.max(0, Math.min(1, r));
+          array[base*4 + 1] += Math.max(0, Math.min(1, g));
+          array[base*4 + 2] += Math.max(0, Math.min(1, b));
         }
       };
       
@@ -100,7 +103,7 @@ onmessage = function(e) {
       var compiled = asmjs(stdlib, {
         dw: dw,
         dh: dh,
-        quality: quality,
+        di: di,
         hit: hit,
         error: function(code) { throw ("asm.js: "+errmsgs[code]); },
         alert_: alert_,
@@ -111,25 +114,48 @@ onmessage = function(e) {
       
       fncache.source = s2src;
       fncache.settings = settings;
-      fncache.fn = function(x_from, y_from, x_to, y_to) {
+      fncache.fn = function(x_from, y_from, i_from, x_to, y_to, i_to) {
+        var size = 4 * (x_to - x_from) * (y_to - y_from);
+        var array = get_floatarray(size);
         
-        config.array = get_uint8array(4 * (x_to - x_from) * (y_to - y_from));
+        config.array = array;
         config.x_from = x_from;
         config.y_from = y_from;
+        config.i_from = i_from;
         config.x_to = x_to;
         config.y_to = y_to;
+        config.i_to = i_to;
         config.count = 0;
         config.last_t = Date.now() - 800; // initial message after 200ms
         // config.last_t = 0; // initial message straight off
         
         compiled.resetGlobals();
         
-        compiled.executeRange(x_from, y_from, x_to, y_to);
-        postMessage({kind: "finish", x_from: x_from, y_from: y_from, x_to: x_to, y_to: y_to, data: config.array});
+        compiled.executeRange(x_from, y_from, i_from, x_to, y_to, i_to);
+        
+        var di = i_to - i_from;
+        var result = get_uint8array(size);
+        for (var y = 0; y < y_to - y_from; ++y) {
+          var y_base = y * (x_to - x_from);
+          for (var x = 0; x < x_to - x_from; ++x) {
+            var base = y_base + x;
+            result[base*4 + 0] = Math.floor(array[base*4 + 0] * 255.99 / di);
+            result[base*4 + 1] = Math.floor(array[base*4 + 1] * 255.99 / di);
+            result[base*4 + 2] = Math.floor(array[base*4 + 2] * 255.99 / di);
+            result[base*4 + 3] = 255;
+          }
+        }
+        
+        postMessage({
+          kind: "finish",
+          x_from: x_from, y_from: y_from, i_from: i_from,
+          x_to  : x_to  , y_to  : y_to  , i_to  : i_to  ,
+          data: result
+        });
       };
     }
     
-    fncache.fn(x_from, y_from, x_to, y_to);
+    fncache.fn(x_from, y_from, i_from, x_to, y_to, i_to);
   } catch (err) {
     postMessage({kind: "error", error: err.toString()});
   }

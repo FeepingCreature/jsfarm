@@ -152,7 +152,7 @@ function ProgressInfo(settings) {
     
     if (this.settings.eta) {
       var stats = this.getEstimate();
-      text(dom_cache['eta'], "elapsed "+formatTime(stats.elapsed)+", remaining "+formatTime(stats.remaining));
+      text(dom_cache['eta'], "elapsed "+formatTime(stats.elapsed)+", left "+formatTime(stats.remaining));
     }
   };
   this.update(0);
@@ -278,7 +278,7 @@ function ProgressUI(max_fn) {
     }
     
     var msg = task.message;
-    var size = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from);
+    var size = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from) * (msg.i_to - msg.i_from);
     
     this.contributors[this.label_by_id[task.assigned_to]].increase(size);
     
@@ -294,7 +294,7 @@ function ProgressUI(max_fn) {
     delete task._progress;
   };
   this.updateQuickProgInfo = function() {
-    text(this.cache['#QuickProgInfo'], this.num_connections+" peers connected - "
+    text(this.cache['#QuickProgInfo'], this.num_connections+" peers - "
       +this.main_progress.getPercent()+"% - "
       +this.main_progress.dom_cache['eta'].textContent);
   };

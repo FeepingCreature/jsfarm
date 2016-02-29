@@ -411,8 +411,7 @@ function RenderScene() {
   
   workset.task_defaults = {
     source: fullsrc,
-    dw: dw, dh: dh,
-    quality: quality
+    dw: dw, dh: dh, di: quality
   };
   
   workset.onTaskAdd = function(task) {
@@ -445,7 +444,7 @@ function RenderScene() {
   workset.onDone = CancelRender;
   
   var extent = Math.max(next_pot(dw), next_pot(dh));
-  var task = new Range(0, 0, extent, extent);
+  var task = new Range(0, 0, 0, extent, extent, quality);
   workset.addTask(task);
   
   $('#progress').empty().append(workset.progress_ui.dom);

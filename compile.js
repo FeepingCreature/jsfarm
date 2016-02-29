@@ -3494,7 +3494,7 @@ function setupSysctx() {
   sysctx.add("Infinity", {kind: "variable", type: "float", value: "Infinity"});
   sysctx.add("dw", {kind: "variable", type: "float", value: "(dw|0)"});
   sysctx.add("dh", {kind: "variable", type: "float", value: "(dh|0)"});
-  sysctx.add("param-quality", {kind: "variable", type: "float", value: "(quality|0)"});
+  sysctx.add("di", {kind: "variable", type: "float", value: "(di|0)"});
   sysctx.add("projscale", {kind: "number", value: 1});
   return sysctx;
 }
@@ -3538,7 +3538,7 @@ function compile(files) {
   jsfile.addLine("var hit = foreign.hit;");
   jsfile.addLine("var dw = foreign.dw|0;");
   jsfile.addLine("var dh = foreign.dh|0;");
-  jsfile.addLine("var quality = foreign.quality|0;");
+  jsfile.addLine("var di = foreign.di|0;");
   jsfile.addLine("var _memory_limit = foreign.memory_limit|0;");
   
   jsfile.addLine("var mem_i32 = new Int32Array(heap);");
@@ -3684,15 +3684,18 @@ function compile(files) {
   var main_fn = main.obj;
   
   jsfile.openSection("function");
-  jsfile.addLine("function executeRange(x_from, y_from, x_to, y_to) {");
+  jsfile.addLine("function executeRange(x_from, y_from, i_from, x_to, y_to, i_to) {");
   jsfile.indent();
   jsfile.addLine("x_from = x_from|0;");
   jsfile.addLine("y_from = y_from|0;");
+  jsfile.addLine("i_from = i_from|0;");
   jsfile.addLine("x_to = x_to|0;");
   jsfile.addLine("y_to = y_to|0;");
+  jsfile.addLine("i_to = i_to|0;");
   
   jsfile.addLine("var x = 0;");
   jsfile.addLine("var y = 0;");
+  jsfile.addLine("var i = 0;");
   jsfile.addLine("var HP_snapshot = 0;");
   
   jsfile.addLine("HP = stackborder|0;"); // reset to start, as innermost as we can
@@ -3710,18 +3713,25 @@ function compile(files) {
   jsfile.addLine("x = x_from|0;");
   jsfile.addLine("while ((x|0) < (x_to|0)) {");
   jsfile.indent();
+  jsfile.addLine("i = i_from|0;");
+  jsfile.addLine("while ((i|0) < (i_to|0)) {");
+  jsfile.indent();
   jsfile.addLine("HP = HP_snapshot|0;"); // reset again
   
   // pass lambda-to-call to trace
   var trace_args = [
     {kind: "variable", type: "float", value: "x|0"},
     {kind: "variable", type: "float", value: "y|0"},
+    {kind: "variable", type: "float", value: "i|0"},
     main_fn,
   ];
   var flattened = flatten_array(null, trace_args);
   
   build_js_call(null, jsfile, "trace", "void", flattened.array)
   
+  jsfile.addLine("i = (i + 1)|0;");
+  jsfile.unindent();
+  jsfile.addLine("}");
   jsfile.addLine("x = (x + 1)|0;");
   jsfile.unindent();
   jsfile.addLine("}");
@@ -3757,21 +3767,18 @@ function compile(files) {
   
   jsfile.addLine("BP = SP|0;");
   
-  var res = mkRes(callctx, null);
-  
-  // call innermost lambda: (fn x y res)
-  callctx.eval(list(
-    {kind: "quote", value: inside_args[2]},
+  // call innermost lambda: vec = (fn x y i)
+  var vec = callctx.eval(list(
+    {kind: "quote", value: inside_args[3]},
     {kind: "quote", value: inside_args[0]},
     {kind: "quote", value: inside_args[1]},
-    {kind: "quote", value: res}
+    {kind: "quote", value: inside_args[2]}
   ));
   
-  var xvar = js_tag(inside_args[0]), yvar = js_tag(inside_args[1]);
+  var xvar = js_tag(inside_args[0]), yvar = js_tag(inside_args[1]), ivar = js_tag(inside_args[2]);
+  var rvar = js_tag("double", vec.value.x), gvar = js_tag("double", vec.value.y), bvar = js_tag("double", vec.value.z);
   
-  var rvev = res.value.emit.value;
-  jsfile.addLine("hit(~~"+xvar+", ~~"+yvar+", "+js_tag("int", res.value.success.value)+", "+
-    js_tag("double", rvev.x)+", "+js_tag("double", rvev.y)+", "+js_tag("double", rvev.z)+");");
+  jsfile.addLine("hit(~~"+xvar+", ~~"+yvar+", "+ivar+", "+rvar+", "+gvar+", "+bvar+");");
   
   jsfile.addLine("SP = BP|0;");
   
