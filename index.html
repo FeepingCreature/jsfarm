@@ -111,9 +111,20 @@
       (first args)
       (let_fun (rest args))))))
 
-
 (def let (macro (...)
   (let_fun ...)))
+
+(def alias_fun (lambda (args)
+  ; TODO error cases for (= size 0)
+  (if (= (size args) 1)
+    (first1 args) ; plain body
+    (list
+      'alias1
+      (first args)
+      (const_fun (rest args))))))
+
+(def alias (macro (...)
+  (alias_fun ...)))
 
 (def require (macro (...) (cons '_require (quotelist ...))))
 (def : (macro (base ...) (cons '_element (cons base (quotelist ...)))))

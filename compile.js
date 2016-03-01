@@ -1018,6 +1018,12 @@ function convert_closures(context, thing) {
               if (n == let1_props.name) return null; // mask
               return lookup(n, base);
             });
+            if (varinfo && varinfo.num_accesses == 1) {
+              // log("we have found a variable that is only accessed once: "+varinfo.name);
+              // it is _conceivable_ that somebody will declare a variable, and only use it once -
+              // to assign a value to it. This person is evil, and deserves to have their code break.
+              let1_props.ident = "alias1";
+            }
             return let1_props.rewriteWith(nvalue, nbody);
           }
           
@@ -1128,13 +1134,15 @@ function convert_closures(context, thing) {
               name: name,
               rname: unique_id("var")+"_"+filter_string(name),
               accessed_from_sub: false,
+              num_accesses: 0,
               thing: let1_props.thing
             }
             vars.push(varinfo);
           }
           rec(let1_props.body, in_nested, function(n, track) {
-            if (!in_nested && n == let1_props.name) {
+            if (varinfo && n == let1_props.name) {
               if (track) varinfo.accessed_from_sub = true;
+              varinfo.num_accesses ++;
               return null;
             }
             return lookup(n, track);
@@ -1201,18 +1209,20 @@ function convert_closures(context, thing) {
   return array;
 }
 
-function match_let1(thing) {
-  if (!match_op(thing, "let1")) return null;
+function match_let1(thing, as_alias) {
+  var myident = as_alias?"alias1":"let1";
+  
+  if (!match_op(thing, myident)) return null;
   
   var args = thing.value.slice(1);
-  if (args.length != 2) fail(thing, "'let1' expects two arguments");
+  if (args.length != 2) fail(thing, "'"+myident+"' expects two arguments");
   
   var bind = args[0];
   if (bind.kind != "list"
    || bind.value.length != 2
    || bind.value[0].kind != "atom"
   )
-    fail(bind, "'let1' expects (name value) pair!");
+    fail(bind, "'"+myident+"' expects (name value) pair!");
   
   return {
     name: bind.value[0].value,
@@ -1220,12 +1230,13 @@ function match_let1(thing) {
     bind: bind,
     body: args[1],
     thing: thing,
+    ident: myident,
     rewriteWith: function(nvalue, nbody) {
       return {
         kind: "list",
         fail: this.thing.fail,
         value: [
-          {kind: "atom", value: "let1"},
+          {kind: "atom", value: this.ident},
           {
             kind: "list",
             fail: this.thing.value[1].fail,
@@ -1410,6 +1421,18 @@ function let1_internal(context, thing, rest) {
   // if (value == null) log("debug let1:", name, "=", sexpr_dump(value), " ("+((value == null)?"null":"defined")+") from ", sexpr_dump(let1_props.value));
   letctx.add(name, value);
   return letctx.eval(let1_props.body);
+}
+
+function alias1_internal(context, thing, rest) {
+  var alias1_props = match_let1(thing, true);
+  if (!alias1_props) throw "internal error";
+  
+  var name = alias1_props.name;
+  var value = alias1_props.value;
+  
+  var aliasctx = new Context(context);
+  aliasctx.add(name, aliasctx.eval(value)); // the difference - no copy()!
+  return aliasctx.eval(alias1_props.body);
 }
 
 function def_internal(context, thing, rest) {
@@ -1735,7 +1758,7 @@ function lambda_internal(context, thing, rest) {
       }
       else if (res.kind == "vector") {
         ret_type = res.type;
-        var rplaces = ["_rvec_x", "_rvec_y", "_rvec_z", "rvec_w"];
+        var rplaces = ["_rvec_x", "_rvec_y", "_rvec_z", "_rvec_w"];
         if (res.type.size > 4 || res.type.base != "float") {
           fail(thing, "todo return vector of size > 4 or type != float");
         }
@@ -2295,6 +2318,7 @@ function eval_builtin(context, thing) {
   var rest = list.slice(1);
   
   if (name == "let1") return let1_internal(context, thing, rest);
+  if (name == "alias1") return alias1_internal(context, thing, rest);
   if (name == "def") return def_internal(context, thing, rest);
   if (name == "set") return set_internal(context, thing, rest);
   
@@ -2314,8 +2338,9 @@ function Context(sup, js) {
   
   reserved_identifiers = {
     let1: 1, def: 1, set: 1,
+    alias1: 1,
     lambda: 1, macro: 1,
-    "if": 1, "while": 1,
+    if: 1, while: 1,
     "alloc-struct": 1, "make-struct": 1/*, "require": 1*/
   };
   
@@ -3331,9 +3356,9 @@ function setupSysctx() {
         var oper = array[i];
         if (oper.kind == "vector") {
           // promote to vector
-          if (!anyVecs) if (res == null) throw "null";
           if (!anyVecs) {
             var nres = [];
+            // res is permitted to be null!
             for (var k = 0; k < oper.type.size; ++k) nres.push(res);
             res = nres;
           } else if (oper.type.size != res.length) {
