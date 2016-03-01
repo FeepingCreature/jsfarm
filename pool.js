@@ -22,14 +22,6 @@ function is_pot(i) {
 
 var global_ram = new ArrayBuffer(1024*32768);
 
-var arraycache_u8 = {}; // we only use pot ranges, so this should be a low number
-function get_uint8array(size) {
-  if (!arraycache_u8.hasOwnProperty(size)) {
-    arraycache_u8[size] = new Uint8Array(size);
-  }
-  return arraycache_u8[size];
-}
-
 var arraycache_float = {}; // we only use pot ranges, so this should be a low number
 function get_floatarray(size) {
   if (!arraycache_float.hasOwnProperty(size)) {
@@ -134,7 +126,7 @@ onmessage = function(e) {
         compiled.executeRange(x_from, y_from, i_from, x_to, y_to, i_to);
         
         var di = i_to - i_from;
-        var result = get_uint8array(size);
+        var result = new Uint8Array(size);
         for (var y = 0; y < y_to - y_from; ++y) {
           var y_base = y * (x_to - x_from);
           for (var x = 0; x < x_to - x_from; ++x) {
@@ -149,9 +141,9 @@ onmessage = function(e) {
         postMessage({
           kind: "finish",
           x_from: x_from, y_from: y_from, i_from: i_from,
-          x_to  : x_to  , y_to  : y_to  , i_to  : i_to  ,
-          data: result
-        });
+          x_to  : x_to  , y_to  : y_to  , i_to  : i_to,
+          data: result.buffer
+        }, [result.buffer]);
       };
     }
     

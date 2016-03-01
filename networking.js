@@ -261,10 +261,10 @@ function ServerConnection() {
       
       wrapper.onComplete = function(data) {
         con.send({kind: 'done', channel: msg.channel});
-        con.send({kind: 'result', channel: msg.channel, data: data.buffer});
+        con.send({kind: 'result', channel: msg.channel, data: data});
         delete wrapper.onComplete;
         
-        var pixels = data.buffer.byteLength / 4;
+        var pixels = data.byteLength / 4;
         con.helpstats.onSendResult((msg.message.i_to - msg.message.i_from) * pixels);
         
         // worker has gone idle, maybe we can assign a queued task?
