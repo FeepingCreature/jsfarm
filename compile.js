@@ -3143,6 +3143,32 @@ function setupSysctx() {
       thing.fail("expect 1 or 3 arguments for 'vec3f'");
     }
   });
+  // TODO generalize
+  defun(sysctx, "vec4f", function(context, thing, array) {
+    var type = {kind: "vector", base: "float", size: 4};
+    var fun = function(x, y, z, w) {
+      return mkVec(js, type, [x, y, z, w]);
+    };
+    var js = context.js;
+    if (!js) {
+      // TODO assert x,y,z are numbers
+      fun = function(x, y, z, w) {
+        // lol
+        x = {kind: "variable", type: "float", value: x.value};
+        y = {kind: "variable", type: "float", value: y.value};
+        z = {kind: "variable", type: "float", value: z.value};
+        w = {kind: "variable", type: "float", value: w.value};
+        return mkVec_direct(type, [x, y, z, w]);
+      };
+    }
+    if (array.length == 4) {
+      return fun(array[0], array[1], array[2], array[3]);
+    } else if (array.length == 1) {
+      return fun(array[0], array[0], array[0], array[0]);
+    } else {
+      thing.fail("expect 1 or 4 arguments for 'vec4f'");
+    }
+  });
   
   defun(sysctx, "_element", function(context, thing, array) {
     if (array.length < 2) fail(thing, "':' expected at least two arguments");
@@ -3170,7 +3196,7 @@ function setupSysctx() {
           base = {kind: "variable", type: type.base, value: base.value[2]};
         else if (type.size > 3 && name == "w")
           base = {kind: "variable", type: type.base, value: base.value[3]};
-        else fail(thing, "undefined vector property '"+name+"'");
+        else fail(key, "undefined vector property '"+name+"'");
       } else if (base.kind == "struct") {
         if (base.value.hasOwnProperty(name)) {
           base = base.value[name];
