@@ -141,7 +141,7 @@ var StorageHandlers = {
           var key = file_id+","+obj.html_url;
           setAnchorState('gist', key);
           MarkEditorsSaved();
-          var a = document.createElement("a")
+          var a = document.createElement("a");
           a.href = obj.html_url;
           logJq($(document.createTextNode('> ')).add($(a).text("Script saved.")).add('<br>'));
         }
@@ -369,9 +369,15 @@ function RenderScene() {
   var lines = jsource.split("\n");
   for (var i = 0; i < lines.length; ++i)
     lines[i] = (i+1)+": "+lines[i];
-  var srctext = lines.join("<br>").replace(/\t/g, '&nbsp;&nbsp;&nbsp;&nbsp;');
-  logHtml("Rendering. (<a href=\"#\" onclick=\"$(this).parent().find('.src').toggle();\">Source</a>)"+
-      "<div class=\"src\" style=\"display:none;\">"+srctext+"</div>");
+  var src = $('<div class="src" style="display:none;"></div>');
+  for (var i = 0; i < lines.length; ++i) {
+    var line = $('<div></div>').text(lines[i].replace(/\t/g, '  '));
+    src.append(line);
+  }
+  var a = $('<a></a>').attr('href', '#').on('click', function(e) { e.preventDefault(); src.toggle(); }).text('Source');
+  var div = $('<div></div>');
+  div.append(document.createTextNode('> Rendering. (')).append(a).append(')').append(src).append('<br>');
+  logJq(div);
   
   var canvas = document.getElementById('canvas');
   
