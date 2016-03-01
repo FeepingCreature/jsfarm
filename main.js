@@ -367,13 +367,11 @@ function RenderScene() {
   }
   
   var lines = jsource.split("\n");
-  for (var i = 0; i < lines.length; ++i)
-    lines[i] = (i+1)+": "+lines[i];
-  var src = $('<div class="src" style="display:none;"></div>');
   for (var i = 0; i < lines.length; ++i) {
-    var line = $('<div></div>').text(lines[i].replace(/\t/g, '  '));
-    src.append(line);
+    lines[i] = (i+1)+": "+lines[i];
   }
+  var src = $('<div class="src" style="display:none;"></div>');
+  src.append($('<pre></pre>').text(lines.join("\n").replace(/\t/g, '  ')));
   var a = $('<a></a>').attr('href', '#').on('click', function(e) { e.preventDefault(); src.toggle(); }).text('Source');
   var div = $('<div></div>');
   div.append(document.createTextNode('> Rendering. (')).append(a).append(')').append(src).append('<br>');

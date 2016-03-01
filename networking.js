@@ -420,10 +420,12 @@ function ServerConnection() {
     this.workers[index] = workerWrapper;
   }
   this.startWorkers = function(threads) {
+    if (this.workers.length) throw "internal error";
+    this.workers = new Array(threads);
     for (var i = 0; i < threads; ++i) {
       var marker = $('<div class="worker-marker"></div>');
       $('#WorkerInfo .workerlist').append(marker);
-      this._startWorker(marker, this.workers.length);
+      this._startWorker(marker, i);
     }
   };
   this.connect = function() {

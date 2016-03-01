@@ -13,3 +13,8 @@
 .heading {
   color: white;
 }
+
+pre {
+  color: white;
+  background-color: #282828;
+}
