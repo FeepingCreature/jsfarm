@@ -54,19 +54,23 @@ function jsStringEscape(string) {
 
 function js_tag_init(type, value) {
   if (type == "float") {
-    if (str_is_int(value)) {
+    if (typeof value == "number" && value == (value|0)) {
       return value+".0";
       // return "fround("+value+")";
     } else if (""+parseFloat(value) == value) {
       value = parseFloat(value).toFixed(20);
       return value;
+      // if (value == "Infinity") return; // Double, not Float
       // return "fround("+value+")";
     }
+  }
+  if (type == "int") {
+    if (typeof value == "number") return value;
   }
 }
 
 function suspect(text) {
-  if (text.search("undefined") !== -1 || text.search("object Object") !== -1) {
+  if (text.search("undefined") !== -1 || text.search("object Object") !== -1 || text.search("null") !== -1) {
     throw ("this seems suspicious. "+text);
   }
 }
@@ -106,10 +110,36 @@ function coerce_int(arg) {
   if (typeof arg == "string" && arg.slice(0, 2) == "__") { /* replaced with integer later */
     return arg;
   }
+  // like fround(1)
+  if (arg.slice(0, 7) == "fround(" && arg.slice(-1) == ")" && isFloat(arg.slice(7, -1))) {
+    arg = arg.slice(7, -1);
+  }
   if (isFloat(arg)) {
     return ""+(~~(parseFloat(arg, 10)));
   }
   return "~~"+paren_maybe(arg, "~");
+}
+
+function lit_float(thing) {
+  if (thing.kind != "expr") return false;
+  return typeof thing.value == "number";
+}
+
+function lit_int(thing) {
+  if (!lit_float(thing)) return false;
+  if (thing.type != "int") return false;
+  if (thing.value != thing.value|0) throw "bad int";
+  return true;
+}
+
+function lit_bool(thing) {
+  if (thing.kind != "expr") return false;
+  if (thing.type != "bool") return false;
+  return thing.value == true || thing.value == false;
+}
+
+function coerce_double(thing) {
+  return js_tag("double", js_tag(thing));
 }
 
 function paren_maybe(ex, op) {
@@ -121,6 +151,7 @@ function paren_maybe(ex, op) {
   var is_number = function(text) {
     if (str_is_int(text)) return true;
     if (""+parseFloat(text) == text) return true;
+    if (parseFloat(text).toFixed(20) == text) return true;
     if (""+parseFloat(text)+".0" == text) return true; // forced double
     return false;
   };
@@ -128,9 +159,10 @@ function paren_maybe(ex, op) {
     return is_simple_identifier(text) || is_number(text);
   };
   if (is_basic(ex)) return ex;
-  if ("+.*/&|^~<=>=".indexOf(op) != -1) {
+  if (ex.slice(0, 6) == "fround") return ex;
+  /*if ("+./*&|^~<=>=".indexOf(op) != -1) {
     if (ex.slice(0,1) == "+" && is_basic(ex.slice(1))) return " "+ex;
-  }
+  }*/
   return "("+ex+")";
 }
 
@@ -141,52 +173,50 @@ function js_tag(type, value) {
     
     if (value.kind == "frame") value = value.base;
     
-    if (value.kind == "variable") {
+    if (value.kind == "expr") {
+      /*if (!lit_float(value)) {
+        return value.value;
+      }*/
       type = value.type;
       value = value.value;
-    } else if (value.kind == "number") {
-      var res = tagf_init(value.value);
-      if (res != null) return res;
-      throw "what why can't I tag init '"+value.value+"'";
-    } else if (value.kind == "bool") {
-      value = value.value;
-      type = "bool";
     } else throw "how tag "+value.kind;
   }
   if (type == "float") return "+"+paren_maybe(value, "+");
   // if (type == "float") return "fround("+value+")";
   if (type == "double") return "+"+paren_maybe(value, "+");
   if (type == "int") return paren_maybe(value, "|")+"|0";
-  if (type == "bool") return paren_maybe(value, "|")+"|0";
+  if (type == "bool") {
+    if (typeof value == "boolean") {
+      if (value) return "1";
+      else return "0";
+    }
+    return paren_maybe(value, "|")+"|0";
+  }
   throw "how tag "+type;
   // return value;
 }
 
 function js_as_type(type, value) {
-  if (value.kind == "variable" && value.type == type) {
+  if (lit_int(value)) return value.value;
+  if (value.kind == "expr" && value.type == type) {
     return js_tag(value);
   }
-  if (value.kind == "number") {
-    if (type == "float") return js_tag_init("float", value.value);
-    if (type == "int" && str_is_int(value.value)) {
-      return ""+parseInt(value.value);
-    }
+  if (type == "float" && value.kind == "expr" && value.type == "int") {
+    return js_tag("float", js_tag(value));
   }
+  // return null;
+  if (type == "int" && value.kind == "expr" && value.type == "float") return null;
   fail(value, "as_type? <"+type+"> "+JSON.stringify(value));
 }
 
 // for unification
 function js_typelist(thing) {
-  if (thing.kind == "variable") {
-    return [thing.type];
-  } else if (thing.kind == "number") {
-    if (str_is_int(thing.value)) {
+  if (thing.kind == "expr") {
+    if (thing.type == "int")
       return ["int", "float", "double"];
-    } else {
+    if (thing.type == "float")
       return ["float", "double"];
-    }
-  } else if (thing.kind == "bool") {
-    return ["bool"];
+    return [thing.type];
   } else throw "what is typelist of "+thing.kind;
 }
 
@@ -202,7 +232,7 @@ function first_common(array1, array2) {
 
 function js_unify_vars(left, right) {
   var packtag = function(type, thing) {
-    return {kind: "variable", type: type, value: js_as_type(type, thing)};
+    return {kind: "expr", type: type, value: js_as_type(type, thing)};
   };
   var ltypes = js_typelist(left), rtypes = js_typelist(right);
   var shared = first_common(ltypes, rtypes);
@@ -279,7 +309,7 @@ function js_get_at(type, base, offs) {
   
   if (type.kind == "vector") {
     var parts = [];
-    var elemsize = js_size({kind: "variable", type: type.base});
+    var elemsize = js_size({kind: "expr", type: type.base, value: "ERROR HERE js_size"});
     for (var i = 0; i < type.size; ++i) {
       parts.push(js_get_at(type.base, base, offs + elemsize * i));
     }
@@ -337,15 +367,15 @@ function js_get_at(type, base, offs) {
   if (offs === 0) {
     target = stackvar+"["+paren_maybe(js_tag(base), ">>")+" >> "+shift+"]";
   } else if (typeof offs == "number") {
-    target = stackvar+"["+paren_maybe(js_op("+", js_tag(base), offs), ">>")+" >> "+shift+"]";
+    target = stackvar+"["+paren_maybe(js_op(null, "+", js_tag(base), offs), ">>")+" >> "+shift+"]";
   } else {
-    target = stackvar+"["+paren_maybe(js_op("+", js_tag(base), js_tag(offs)), ">>")+" >> "+shift+"]";
+    target = stackvar+"["+paren_maybe(js_op(null, "+", js_tag(base), js_tag(offs)), ">>")+" >> "+shift+"]";
   }
   
   suspect(target);
   
   return {
-    kind: "variable",
+    kind: "expr",
     type: type,
     value: target
   };
@@ -353,16 +383,14 @@ function js_get_at(type, base, offs) {
 
 function js_tag_cast(type, thing) {
   if (type == "float") {
-    if (thing.kind == "number" ||
-        thing.kind == "variable" && thing.type == "float")
-    {
+    if (thing.kind == "expr" && thing.type == "float") {
       return js_tag(thing);
     }
   }
   return js_tag(type, js_tag(thing));
 }
 
-function js_op(op, a, b) {
+function js_op(type, op, a, b) {
   // int ops
   if (op == "<<" || op == ">>" || op == ">>>" || op == "&" || op == "|" || op == "^") {
     a = coerce_int(a);
@@ -372,9 +400,24 @@ function js_op(op, a, b) {
   b = paren_maybe(b, op);
   if (op == "%") {
     // TODO mkVar?
-    return "+(+("+a+" % "+b+") + "+b+") % "+b;
+    return js_op(type, "%%", js_op(type, "+", js_op(type, "%%", a, b), b), b);
   }
-  return a+" "+op+" "+b;
+  if (op == "%%") {
+    op = "%";
+    if (type != "int") {
+      a = "+("+a+")"; // coerce, if float
+      b = "+("+b+")";
+      type = "float"; // coerce back
+    }
+  }
+  var res = null;
+  if (type == "int" && op == "*") {
+    res = "imul("+a+", "+b+")";
+  } else {
+    res = a+" "+op+" "+b;
+  }
+  if (!type) return res;
+  return js_tag(type, res);
 }
 
 // turn a compound expression into an array of primitives
@@ -384,12 +427,6 @@ function flatten(base, thing) {
   if (typeof thing == "function-poly")
     return [thing]; // hopeless
   
-  if (thing.kind == "number") {
-    return [thing]; // primitive
-  }
-  if (thing.kind == "bool") {
-    return [thing]; // primitive
-  }
   if (thing.kind == "struct") {
     if (!thing.hasOwnProperty("base")) fail(base, "bad struct for runtime call");
     return [thing.base];
@@ -404,13 +441,13 @@ function flatten(base, thing) {
     }
     return [thing.base];
   }
-  if (thing.kind == "variable") {
+  if (thing.kind == "expr") {
     return [thing]; // all "variables" are primitive
   }
   if (thing.kind == "vector") {
     var vars = [];
     for (var i = 0; i < thing.type.size; ++i) {
-      vars.push({kind: "variable", type: thing.type.base, value: thing.value[i]});
+      vars.push({kind: "expr", type: thing.type.base, value: thing.value[i]});
     }
     return vars;
   }
@@ -465,9 +502,7 @@ function flatten_type(type) {
 function get_type_signature(thing) {
   if (thing == null) return "null";
   if (typeof thing == "string") return thing;
-  if (thing.kind == "variable") return get_type_signature(thing.type);
-  if (thing.kind == "number") return "float";
-  if (thing.kind == "bool") return "bool";
+  if (thing.kind == "expr") return get_type_signature(thing.type);
   if (thing.kind == "vector" && 'type' in thing) return get_type_signature(thing.type);
   if (thing.kind == "vector") return "vector_"+thing.size+"_"+thing.base;
   if (thing.kind == "struct") {
@@ -555,6 +590,18 @@ function reconstruct_by_types(js, types, vars) {
       array.push(js_get_at(type, take(1)[0], 0));
       continue;
     }
+    if (type.kind == "vector") {
+      var comps = take(type.size);
+      var names = new Array(comps.length);
+      for (var i = 0; i < comps.length; ++i) {
+        var comp = comps[i];
+        if (comp.kind != "expr") throw "todo";
+        if (comp.type != type.base) throw ("invalid argument type for reconstructing "+type.base+": "+comp.type);
+        names[i] = comp.value;
+      }
+      array.push({kind: "vector", type: type, value: names});
+      continue;
+    }
     fail(null, "unimplemented: reconstruct "+JSON.stringify(type));
   }
   if (vars.length) throw "reconstruct failure: vars left over!";
@@ -562,9 +609,7 @@ function reconstruct_by_types(js, types, vars) {
 }
 
 function js_type(thing) {
-  if (thing.kind == "number") return "float";
-  if (thing.kind == "bool") return "bool";
-  if (thing.kind == "variable") return thing.type;
+  if (thing.kind == "expr") return thing.type;
   if (thing.kind == "struct") return thing.type;
   if (thing.kind == "vector") return thing.type;
   if (thing.kind == "function" || thing.kind == "closure") {
@@ -580,15 +625,13 @@ function js_type(thing) {
 }
 
 function js_size(thing) {
-  if (thing.kind == "number") return 4;
-  if (thing.kind == "bool") return 4;
-  if (thing.kind == "variable") {
+  if (thing.kind == "expr") {
     var type = thing.type;
     if (type == "float" || type == "int" || type == "bool") return 4;
   }
   if (thing.kind == "struct") return thing.type.size;
   if (thing.kind == "vector") {
-    var res = js_size({kind: "variable", type: thing.type.base}) * thing.type.size;
+    var res = js_size({kind: "expr", type: thing.type.base, value: "ERROR HERE js_size"}) * thing.type.size;
     if (res == 12) res = 16; // vec3 are vec4-sized for alignment reasons
     return res;
   }
@@ -609,9 +652,7 @@ function js_size(thing) {
 function reconstruct(js, thing, array) {
   var type = null;
   if (thing.kind == "vector") type = "vector";
-  else if (thing.kind == "number") type = "float";
-  else if (thing.kind == "bool") type = "bool";
-  else if (thing.kind == "variable") type = thing.type;
+  else if (thing.kind == "expr") type = thing.type;
   else if (thing.kind == "struct") type = "struct";
   else if (thing.kind == "frame") type = "frame";
   else if (thing.kind == "closure") type = "closure";
@@ -622,7 +663,7 @@ function reconstruct(js, thing, array) {
   
   if (type == "float" || type == "int" || type == "bool") {
     if (array.length < 1) fail(thing, "reconstruct:1 internal error");
-    if (array[0].kind != "variable" || array[0].type != type) throw ("can't reconstruct "+type+" from "+JSON.stringify(array[0]));
+    if (array[0].kind != "expr" || array[0].type != type) throw ("can't reconstruct "+type+" from "+JSON.stringify(array[0]));
     return {
       value: array[0],
       rest: array.slice(1)};
@@ -632,7 +673,7 @@ function reconstruct(js, thing, array) {
     var vars = array.slice(0, thing.type.size);
     for (var i = 0; i < vars.length; ++i) {
       var v = vars[i];
-      if (v.kind != "variable" || v.type != thing.type.base) throw ("can't reconstruct vector from "+JSON.stringify(v));
+      if (v.kind != "expr" || v.type != thing.type.base) throw ("can't reconstruct vector from "+JSON.stringify(v));
     }
     return {
       value: mkVec_direct(thing.type, vars),
@@ -760,17 +801,27 @@ function Parser(text, fulltext_or_rowbase) {
     this.text = this.text.substr(hit[1].length);
     return hit[1];
   };
-  this.gotNumber = function() {
+  this.gotNumber = function(only_int) {
     this.clean();
-    var hit = this.text.match(/^(-?(0x[0-9a-fA-F]+|[0-9]+|[0-9]*\.[0-9]+))(\s|[)])/);
+    var hit = this.text.match(/^(-?(0x[0-9a-fA-F]+|[0-9]+|[0-9]*\.[0-9]*))(\s|[)])/);
     if (!hit) return false;
-    this.text = this.text.substr(hit[1].length);
     if (hit[1].slice(0,2) == "0x") {
       // hex literal
+      this.text = this.text.substr(hit[1].length);
       return parseInt(hit[1].slice(2), 16);
     }
+    if (only_int) {
+      var res = parseInt(hit[1], 10);
+      if (""+res == hit[1]) {
+        this.text = this.text.substr(hit[1].length);
+        return res;
+      }
+      return false;
+    }
+    this.text = this.text.substr(hit[1].length);
     return parseFloat(hit[1], 10);
   };
+  this.gotInt = function() { return this.gotNumber(true); };
   this.eof = function() {
     this.clean();
     return this.text.length === 0;
@@ -865,10 +916,15 @@ function sexpr_parse(context, parser, indentchecker) {
     text_post = parser.text;
     return makething({kind: "list", value: sexpr});
   }
+  var int = parser.gotInt();
+  if (int !== false) {
+    text_post = parser.text;
+    return makething({kind: "expr", type: "int", value: int});
+  }
   var number = parser.gotNumber();
   if (number !== false) {
     text_post = parser.text;
-    return makething({kind: "number", value: number});
+    return makething({kind: "expr", type: "float", value: number});
   }
   var ident = parser.gotIdentifier();
   if (ident !== false) {
@@ -1315,8 +1371,6 @@ function sexpr_dump(thing) {
   
   if (thing.kind == "atom") return thing.value;
   else if (thing.kind == "quote") return "'"+sexpr_dump(thing.value);
-  else if (thing.kind == "number") return thing.value;
-  else if (thing.kind == "bool") return thing.value;
   else if (thing.kind == "list") {
     var dlist = [];
     for (var i = 0; i < thing.value.length; ++i) {
@@ -1327,7 +1381,7 @@ function sexpr_dump(thing) {
   /*else if (thing.hasOwnProperty('fail')) {
     thing.fail("what is even "+thing.kind);
   }*/
-  else if (thing.kind == "variable") {
+  else if (thing.kind == "expr") {
     return "&lt;"+thing.type+" "+thing.value+"&gt;";
   }
   else if (typeof thing == "function") {
@@ -1365,14 +1419,8 @@ function mkVec(js, type, vars) {
 function copy(js, thing) {
   if (thing === null) return null;
   if (thing.kind == "function") return thing; // hopeless
-  if (thing.kind == "variable") {
+  if (thing.kind == "expr") {
     return js.mkVar(thing.value, thing.type, "copy");
-  }
-  if (thing.kind == "number") {
-    return js.mkVar(thing.value, "float", "copy");
-  }
-  if (thing.kind == "bool") {
-    return js.mkVar(thing.value, "bool", "copy");
   }
   if (thing.kind == "vector") {
     js.nop();
@@ -1464,17 +1512,15 @@ function def_internal(context, thing, rest) {
 
 function js_set(js, thing, target, value) {
   if (target == null || value == null) fail(thing, "what");
-  // fake it
-  if (value.kind == "number") {
-    value = {kind: "variable", type: "float", value: tagf_init(value.value)};
-  }
-  if (value.kind == "bool") {
-    value = {kind: "variable", type: "bool", value: value.value};
-  }
   
-  if (target.kind == "variable" && value.kind == "variable") {
-    if (target.type != value.type)
-      thing.fail("mismatch: assigning "+value.type+" to "+target.type);
+  if (target.kind == "expr" && value.kind == "expr") {
+    if (target.type != value.type) {
+      var converted = js_as_type(target.type, value);
+      if (!converted) {
+        fail(thing, "mismatch: assigning "+value.type+" to "+target.type);
+      }
+      value = {kind: "expr", type: target.type, value: converted};
+    }
     js.set(target.type, target.value, value.value);
     return;
   }
@@ -1591,14 +1637,14 @@ function build_js_call(thing, js, fname, ret_type, flat_args) {
     js.addLine(call+";");
     ret_value = flatclone(ret_type);
     ret_value.base = flatclone(ret_value.base);
-    ret_value.base.base = copy(js, {kind: "variable", type: "int", value: "_cp_base"});
+    ret_value.base.base = copy(js, {kind: "expr", type: "int", value: "_cp_base"});
   }
   else if (ret_type.kind == "closure") {
     js.addLine(call+";");
     ret_value = copy(js, new ClosurePointer(
       ret_type,
-      {kind: "frame", base: {kind: "variable", type: "int", value: "_cp_base"}},
-      {kind: "variable", type: "int", value: "_cp_offset"}
+      {kind: "frame", base: {kind: "expr", type: "int", value: "_cp_base"}},
+      {kind: "expr", type: "int", value: "_cp_offset"}
     ));
   }
   else fail(thing, "2 how return "+JSON.stringify(ret_type));
@@ -1721,7 +1767,7 @@ function lambda_internal(context, thing, rest) {
       // reform our decomposed parameters back into 'args'
       var inside_flat_arglist = [];
       for (var i = 0; i < partypes.length; ++i) {
-        inside_flat_arglist.push({kind: "variable", type: partypes[i], value: parnames[i]});
+        inside_flat_arglist.push({kind: "expr", type: partypes[i], value: parnames[i]});
       }
       
       var inside_args = reconstruct_array(js, args, inside_flat_arglist);
@@ -1746,16 +1792,6 @@ function lambda_internal(context, thing, rest) {
         js.addLine("SP = BP;");
         js.addLine("return");
       }
-      else if (res.kind == "number") {
-        ret_type = "float";
-        js.addLine("SP = BP;");
-        js.addLine("return "+js_tag(res)+";");
-      }
-      else if (res.kind == "bool") {
-        ret_type = "int";
-        js.addLine("SP = BP;");
-        js.addLine("return "+js_tag(res)+";");
-      }
       else if (res.kind == "vector") {
         ret_type = res.type;
         var rplaces = ["_rvec_x", "_rvec_y", "_rvec_z", "_rvec_w"];
@@ -1769,7 +1805,7 @@ function lambda_internal(context, thing, rest) {
         js.addLine("SP = BP;");
         js.addLine("return");
       }
-      else if (res.kind == "variable" && (res.type == "float" || res.type == "bool" || res.type == "int")) {
+      else if (res.kind == "expr" && (res.type == "float" || res.type == "bool" || res.type == "int")) {
         ret_type = res.type;
         js.addLine("SP = BP;");
         js.addLine("return "+js_tag(res)+";");
@@ -1816,6 +1852,7 @@ function lambda_internal(context, thing, rest) {
     
     if (flat_args.length != partypes.length) callthing.fail("internal logic error");
     
+    // js.addLine('alert_("call '+namehint+'");');
     return build_js_call(callthing, js, fn, ret_type, flat_args);
   }
   
@@ -1855,7 +1892,7 @@ function lambda_internal(context, thing, rest) {
     // reform our decomposed parameters back into 'type.args'
     var inside_flat_arglist = [];
     for (var i = 0; i < partypes.length; ++i) {
-      inside_flat_arglist.push({kind: "variable", type: partypes[i], value: parnames[i]});
+      inside_flat_arglist.push({kind: "expr", type: partypes[i], value: parnames[i]});
     }
     
     var inside_args = reconstruct_by_types(js, type.args, inside_flat_arglist);
@@ -1875,11 +1912,6 @@ function lambda_internal(context, thing, rest) {
       js.addLine("return");
       ret_type = "void";
     }
-    else if (res.kind == "number") {
-      js.addLine("SP = BP;");
-      js.addLine("return "+js_tag(res)+";");
-      ret_type = "float";
-    }
     else if (res.kind == "vector") {
       ret_type = res.type;
       
@@ -1895,7 +1927,7 @@ function lambda_internal(context, thing, rest) {
       js.addLine("SP = BP;");
       js.addLine("return");
     }
-    else if (res.kind == "variable" && (res.type == "float" || res.type == "bool" || res.type == "int")) {
+    else if (res.kind == "expr" && (res.type == "float" || res.type == "bool" || res.type == "int")) {
       js.addLine("SP = BP;");
       js.addLine("return "+js_tag(res)+";");
       ret_type = res.type;
@@ -2017,7 +2049,7 @@ function if_internal(context, thing, rest) {
   var if_prop = match_if(thing);
   var test = context.eval(if_prop.test);
   // log("test is "+JSON.stringify(test));
-  if (test.kind == "bool") {
+  if (lit_bool(test)) {
     if (test.value == true) {
       return context.eval(if_prop.branch_true);
     } else if (if_prop.branch_false) {
@@ -2025,8 +2057,8 @@ function if_internal(context, thing, rest) {
     } else return null;
   }
   var js = context.js;
-  if (!js) fail(thing, "could not evaluate test condition at compile time; was "+test.kind);
-  if (test.kind == "variable" && test.type == "bool") {
+  if (!js) fail(thing, "could not evaluate test condition at compile time; was "+JSON.stringify(test));
+  if (test.kind == "expr" && test.type == "bool") {
     var case1_js = null, case2_js = null;
     var phi = null;
     js.indent();
@@ -2043,16 +2075,6 @@ function if_internal(context, thing, rest) {
       }
       if (!case1 && !case2) { } // phi is null, and that is fine
       else {
-        // fake it
-        if (case1.kind == "bool")
-          case1 = {kind: "variable", type: "bool", value: case1.value};
-        if (case2.kind == "bool")
-          case2 = {kind: "variable", type: "bool", value: case2.value};
-        if (case1.kind == "number")
-          case1 = {kind: "variable", type: "float", value: case1.value};
-        if (case2.kind == "number")
-          case2 = {kind: "variable", type: "float", value: case2.value};
-        
         function merge_amend(after1, after2) {
           js.indent();
           js.openSection("case1");
@@ -2068,10 +2090,10 @@ function if_internal(context, thing, rest) {
           case2_js = js.popSection("case2");
         }
         
-        if (case1.kind == "variable" && case2.kind == "variable") {
-          if (case1.type != case2.type) {
-            thing.fail("type mismatch between if branches: "+case1.type+" and "+case2.type);
-          }
+        if (case1.kind == "expr" && case2.kind == "expr") {
+          var unify = js_unify_vars(case1, case2);
+          case1 = unify.left;
+          case2 = unify.right;
           js.unindent();
           phi = js.mkVar(null, case1.type, "phi");
           merge_amend(
@@ -2084,7 +2106,7 @@ function if_internal(context, thing, rest) {
           js.unindent();
           var nulls = [];
           for (var i = 0; i < case1.type.size; ++i) {
-            nulls.push({kind: "variable", type: "float", value: null});
+            nulls.push({kind: "expr", type: "float", value: 0});
           }
           phi = mkVec(js, case1.type, nulls);
           merge_amend(
@@ -2150,7 +2172,7 @@ function while_internal(context, thing, rest) {
     js.addLine("while (1) {");
     js.indent();
     var test = context.eval(while_props.test);
-    if (test.kind == "variable" && test.type == "bool") {
+    if (test.kind == "expr" && test.type == "bool") {
       js.addLine("if (!"+paren_maybe(test.value, "!")+") break;");
     }
     else thing.fail("unimplemented: while test that's "+JSON.stringify(test));
@@ -2161,7 +2183,7 @@ function while_internal(context, thing, rest) {
   } else {
     while (true) {
       var test = context.eval(while_props.test);
-      if (test.kind != "bool") fail(while_props.test, "test did not evaluate to a boolean");
+      if (!lit_bool(test)) fail(while_props.test, "test did not evaluate to a boolean");
       if (!test.value) break;
       res = context.eval(while_props.body);
     }
@@ -2275,7 +2297,7 @@ function make_struct_on(location, context, thing, names, values) {
   if (location == "stack") {
     if (context.js) {
       // stack grows down
-      context.js.set("int", "SP", js_op("-", "SP", res.type.size));
+      context.js.set("int", "SP", js_op("int", "-", "SP", res.type.size));
       base = context.js.mkVar("SP", "int", "struct_base");
     }
   } else if (location == "heap") {
@@ -2283,7 +2305,7 @@ function make_struct_on(location, context, thing, names, values) {
       // heap grows up
       base = context.js.mkVar("malloc("+res.type.size+")", "int", "struct_base");
       // base = context.js.mkVar("HP", "int", "struct_base");
-      // context.js.set("int", "HP", js_op("+", "HP", res.type.size));
+      // context.js.set("int", "HP", js_op("int", "+", "HP", res.type.size));
     }
   } else throw ("internal error "+location);
   
@@ -2453,7 +2475,7 @@ function Context(sup, js) {
       
       fail(thing, "Symbol '"+thing.value+"' not found."+this.info());
     }
-    if (thing.kind == "number" || thing.kind == "bool") {
+    if (thing.kind == "expr") {
       return thing;
     }
     if (thing.kind == "list") {
@@ -2484,10 +2506,7 @@ function Context(sup, js) {
         
         for (var i = 1; i < list.length; ++i) {
           var arg = this.eval(list[i]);
-          /*if (arg == null && sexpr_dump(list[i]) == "%parentframe") {
-            log("Xdebug:", i, sexpr_dump(arg), "<-", sexpr_dump(list[i]), "at", this.info());
-            fail(list[i], "what");
-          }*/
+          // log("Xdebug:", i, sexpr_dump(arg), /*"<-", sexpr_dump(list[i]), */"at", this.info());
           args.push(arg);
         }
         
@@ -2554,7 +2573,7 @@ function emitStubFunction(js, type) {
 
 function js_return_type(type) {
   if (type == "int" || type == "float" || type == "bool" || type == "void") return type;
-  if (type.kind == "closure") {
+  if (type.kind == "closure" || type.kind == "vector") {
     return "void"; // passed in globals
   }
   fail(null, "unimplemented: js_return_type("+JSON.stringify(type)+")");
@@ -2752,6 +2771,7 @@ function JsFile() {
     } else {
       var sample = null;
       if (type == "float") sample = tagf_init("0");
+      else if (type == "double") sample = "0.0";
       else if (type == "int") sample = "0";
       else if (type == "bool") sample = "0";
       else throw ("how init "+type+"?");
@@ -2771,12 +2791,9 @@ function JsFile() {
   };
   this.mkVar = function(value, type, hint, location) {
     if (!type) {
-      if (typeof value == "number") type = "float";
-      else if (typeof value == "boolean") type = "bool";
+      if (typeof value == "number" || typeof value == "boolean") throw "excuse me what are you doing??";
       else if (typeof value == "object") {
-        if (value.kind == "number") {
-          type = "float";
-        } else if (value.kind == "variable") {
+        if (value.kind == "expr") {
           type = value.type;
         }
       }
@@ -2787,31 +2804,26 @@ function JsFile() {
       "?");
     if (value === null) {
       return {
-        kind: "variable",
+        kind: "expr",
         type: type,
         value: this.allocVar(null, type, hint, location)
       };
     }
     if (typeof value == "number" || typeof value == "string" || typeof value == "boolean") {
       return {
-        kind: "variable",
+        kind: "expr",
         type: type,
         value: this.allocVar(value, type, hint, location)
       };
     }
     if (typeof value == "object") {
-      if (value.kind == "number") {
+      if (value.kind == "expr") {
+        var converted = js_as_type(type, value);
+        if (converted === null) throw ("cannot convert to "+type+": "+JSON.stringify(value));
         return {
-          kind: "variable",
+          kind: "expr",
           type: type,
-          value: this.allocVar(value.value, type, hint, location)
-        };
-      }
-      if (value.kind == "variable") {
-        return {
-          kind: "variable",
-          type: type,
-          value: this.allocVar(value.value, type, hint, location)
+          value: this.allocVar(converted, type, hint, location)
         };
       }
     }
@@ -2884,13 +2896,11 @@ function closureTypeToFnType(type, base) {
 
 function js_call_fnptr(js, fnptr, thing, args) {
   var tblname = js.fntable.getTblNameForType(fnptr.type);
-  var tbl_expr = tblname+"["+js_op("&", js_tag(fnptr.offset), js.fntable.getMaskId(tblname))+"]";
+  var tbl_expr = tblname+"["+js_op(null, "&", js_tag(fnptr.offset), js.fntable.getMaskId(tblname))+"]";
   
   var flattened = flatten_array(thing, args);
   var signature = flattened.signature;
   var flat_args = flattened.array;
-  
-  if (flat_args.length != fnptr.type.args.length) throw "internal type mismatch";
   
   return build_js_call(thing, js, tbl_expr, fnptr.type.ret, flat_args);
 }
@@ -2922,7 +2932,7 @@ function setupSysctx() {
       if (value.kind == "vector") {
         var parts = [];
         for (var i = 0; i < value.type.size; ++i) {
-          parts.push("("+fmt(value.values[i])+")");
+          parts.push("("+fmt({kind: "expr", type: value.type.base, value: value.value[i]})+")");
         }
         if (parts.length == 0) return "'vector()'";
         return "'vector('+"+parts.join("+', '+")+"+')'";
@@ -2930,14 +2940,8 @@ function setupSysctx() {
       if (value.kind == "atom") {
         return "'"+jsStringEscape(value.value)+"'";
       }
-      if (value.kind == "variable") {
+      if (value.kind == "expr") {
         return "'<'+"+value.value+"+'>'";
-      }
-      if (value.kind == "number") {
-        return value.value;
-      }
-      if (value.kind == "bool") {
-        return value.value?"true":"false";
       }
       if (value.kind == "list") {
         var list = [];
@@ -2981,7 +2985,7 @@ function setupSysctx() {
     if (value.kind != "list") {
       fail(thing, "'size' expected list as parameter");
     }
-    return {kind: "number", value: value.value.length};
+    return {kind: "expr", type: "int", value: value.value.length};
   });
   defun(sysctx, "first", "1", function(context, thing, value) {
     if (!value) fail(thing, "argument is null");
@@ -2991,13 +2995,13 @@ function setupSysctx() {
     fail(thing, "first? "+JSON.stringify(value));
   });
   defun(sysctx, "list?", "1", function(context, thing, value) {
-    return {kind: "bool", value: value.kind == "list"};
+    return {kind: "expr", type: "bool", value: value.kind == "list"};
   });
   defun(sysctx, "struct?", "1", function(context, thing, value) {
-    return {kind: "bool", value: value.kind == "struct"};
+    return {kind: "expr", type: "bool", value: value.kind == "struct"};
   });
   defun(sysctx, "callable?", "1", function(context, thing, value) {
-    return {kind: "bool", value: can_call(value)};
+    return {kind: "expr", type: "bool", value: can_call(value)};
   });
   // first of list of size 1
   defun(sysctx, "first1", "1", function(context, thing, value) {
@@ -3018,9 +3022,9 @@ function setupSysctx() {
   });
   defun(sysctx, "same", "2", function(context, thing, a, b) {
     if (a.kind == "atom" && b.kind == "atom") {
-      return {kind: "bool", value: a.value === b.value};
+      return {kind: "expr", type: "bool", value: a.value === b.value};
     }
-    if (a.kind != b.kind) return {kind: "bool", value: false};
+    if (a.kind != b.kind) return {kind: "expr", type: "bool", value: false};
     fail(thing, "same? "+JSON.stringify(a)+" and "+JSON.stringify(b));
   });
   defun(sysctx, "cons", 2, function(context, thing, a, b) {
@@ -3041,7 +3045,7 @@ function setupSysctx() {
     }
     var base = js.mkVar("malloc(__FRAME_SIZE__)", "int", "frame_base");
     // var base = js.mkVar("HP", "int", "frame_base");
-    // js.set("int", "HP", js_op("+", "HP", "__FRAME_SIZE__"));
+    // js.set("int", "HP", js_op("int", "+", "HP", "__FRAME_SIZE__"));
     var frame_obj = {
       kind: "frame",
       base: base,
@@ -3067,7 +3071,7 @@ function setupSysctx() {
       frame.entries[name] = {value: value};
       return;
     }
-    if (frame.base.kind != "variable" || frame.base.type != "int") {
+    if (frame.base.kind != "expr" || frame.base.type != "int") {
       fail(thing, "?? "+JSON.stringify(frame.base));
     }
     // offset from frame base = current depth - base depth
@@ -3107,7 +3111,7 @@ function setupSysctx() {
         var fnptr = fn.withFixedType(js, fntype);
         var id = js.fntable.getIdBySignature(fntype, fnptr.fname);
         
-        return new ClosurePointer(type, this.base, {kind: "variable", type: "int", value: id});
+        return new ClosurePointer(type, this.base, {kind: "expr", type: "int", value: id});
       }
     };
   });
@@ -3115,7 +3119,7 @@ function setupSysctx() {
   defun(sysctx, "%seq2_3", 3, function(context, thing, a, b, c) { return b; });
   
   function mkNum(i) {
-    return {kind: "number", value: i};
+    return {kind: "expr", type: "int", value: i};
   }
   
   // a vector is a bundle of n variables
@@ -3129,9 +3133,9 @@ function setupSysctx() {
       // TODO assert x,y,z are numbers
       fun = function(x, y, z) {
         // lol
-        x = {kind: "variable", type: "float", value: x.value};
-        y = {kind: "variable", type: "float", value: y.value};
-        z = {kind: "variable", type: "float", value: z.value};
+        x = {kind: "expr", type: "float", value: x.value};
+        y = {kind: "expr", type: "float", value: y.value};
+        z = {kind: "expr", type: "float", value: z.value};
         return mkVec_direct(type, [x, y, z]);
       };
     }
@@ -3154,10 +3158,10 @@ function setupSysctx() {
       // TODO assert x,y,z are numbers
       fun = function(x, y, z, w) {
         // lol
-        x = {kind: "variable", type: "float", value: x.value};
-        y = {kind: "variable", type: "float", value: y.value};
-        z = {kind: "variable", type: "float", value: z.value};
-        w = {kind: "variable", type: "float", value: w.value};
+        x = {kind: "expr", type: "float", value: x.value};
+        y = {kind: "expr", type: "float", value: y.value};
+        z = {kind: "expr", type: "float", value: z.value};
+        w = {kind: "expr", type: "float", value: w.value};
         return mkVec_direct(type, [x, y, z, w]);
       };
     }
@@ -3189,13 +3193,13 @@ function setupSysctx() {
       if (base.kind == "vector") {
         var type = base.type;
         if (type.size > 0 && name == "x")
-          base = {kind: "variable", type: type.base, value: base.value[0]};
+          base = {kind: "expr", type: type.base, value: base.value[0]};
         else if (type.size > 1 && name == "y")
-          base = {kind: "variable", type: type.base, value: base.value[1]};
+          base = {kind: "expr", type: type.base, value: base.value[1]};
         else if (type.size > 2 && name == "z")
-          base = {kind: "variable", type: type.base, value: base.value[2]};
+          base = {kind: "expr", type: type.base, value: base.value[2]};
         else if (type.size > 3 && name == "w")
-          base = {kind: "variable", type: type.base, value: base.value[3]};
+          base = {kind: "expr", type: type.base, value: base.value[3]};
         else fail(key, "undefined vector property '"+name+"'");
       } else if (base.kind == "struct") {
         if (base.value.hasOwnProperty(name)) {
@@ -3226,8 +3230,8 @@ function setupSysctx() {
     if (!context.js) {
       // log("what do with : result "+typeof(base)+" "+JSON.stringify(base)+" for "+sexpr_dump({kind: "list", value: array}));
       if (typeof base == "object") {
-        if (base.type == "float" && typeof(base.value) == "number") {
-          return {kind: "number", value: base.value};
+        if (base.type == "float" && base.is_number()) {
+          return {kind: "expr", type: "float", value: base.value};
         }
       }
     }
@@ -3237,63 +3241,58 @@ function setupSysctx() {
     return {kind: "list", fail: thing.fail, value: array};
   });
   defun(sysctx, "sqrt", 1, function(context, thing, value) {
-    if (value.kind == "variable" && value.type == "float") {
-      return context.js.mkVar("sqrt("+js_tag(value)+")", "float", "sqrt");
+    if (value.kind == "expr" && value.type == "float") {
+      return context.js.mkVar("+sqrt("+coerce_double(value)+")", "float", "sqrt");
     }
     thing.fail("unimplemented: sqrt "+JSON.stringify(value));
   });
   defun(sysctx, "abs", 1, function(context, thing, value) {
-    if (value.kind == "variable" && value.type == "float") {
-      return context.js.mkVar("abs("+js_tag(value)+")", "float", "abs");
+    if (lit_float(value)) return {kind: "expr", type: "float", value: Math.abs(value.value)};
+    if (value.kind == "expr" && value.type == "float") {
+      return context.js.mkVar("+abs("+coerce_double(value)+")", "float", "abs");
     }
-    if (value.kind == "number") return {kind: "number", value: Math.abs(value.value)};
     thing.fail("unimplemented: abs "+JSON.stringify(value));
   });
   defun(sysctx, "pow", 2, function(context, thing, value, exp) {
-    if (value.kind == "number" && exp.kind == "number") {
-      return {kind: "number", value: Math.pow(value.value, exp.value)};
+    if (lit_float(value) && lit_float(exp)) {
+      return {kind: "expr", type: "float", value: Math.pow(value.value, exp.value)};
     }
     
-    if (value.kind == "number") value = {kind: "variable", type: "float", value: value.value};
-    if (  exp.kind == "number")   exp = {kind: "variable", type: "float", value:   exp.value};
-    
-    if (value.kind == "variable" && value.type == "float"
-       && exp.kind == "variable" &&   exp.type == "float") {
-      return context.js.mkVar("pow("+js_tag(value)+", "+js_tag(exp)+")", "float", "pow");
+    if (value.kind == "expr" && value.type == "float"
+       && exp.kind == "expr" &&   exp.type == "float") {
+      return context.js.mkVar("+pow("+coerce_double(value)+", "+coerce_double(exp)+")", "float", "pow");
     }
     thing.fail("unimplemented: pow "+JSON.stringify(value)+", "+JSON.stringify(exp));
   });
   defun(sysctx, "sin", 1, function(context, thing, value) {
-    if (value.kind == "variable" && value.type == "float") {
-      return context.js.mkVar("sin("+js_tag(value)+")", "float", "sin");
+    if (lit_float(value)) return {kind: "expr", type: "float", value: Math.sin(value.value)};
+    if (value.kind == "expr" && value.type == "float") {
+      return context.js.mkVar("+sin("+coerce_double(value)+")", "float", "sin");
     }
-    if (value.kind == "number") return {kind: "number", value: Math.sin(value.value)};
     thing.fail("unimplemented: sin "+JSON.stringify(value));
   });
   defun(sysctx, "cos", 1, function(context, thing, value) {
-    if (value.kind == "variable" && value.type == "float") {
-      return context.js.mkVar("cos("+js_tag(value)+")", "float", "cos");
+    if (value.kind == "expr" && value.type == "float") {
+      return context.js.mkVar("+cos("+coerce_double(value)+")", "float", "cos");
     }
     thing.fail("unimplemented: cos "+JSON.stringify(value));
   });
   defun(sysctx, "tan", 1, function(context, thing, value) {
-    if (value.kind == "variable" && value.type == "float") {
-      return context.js.mkVar("tan("+js_tag(value)+")", "float", "tan");
+    if (value.kind == "expr" && value.type == "float") {
+      return context.js.mkVar("+tan("+coerce_double(value)+")", "float", "tan");
     }
     thing.fail("unimplemented: tan "+JSON.stringify(value));
   });
   defun(sysctx, "atan2", 2, function(context, thing, y, x) {
-    if (y.kind == "variable" && y.type == "float" && x.kind == "variable" && x.type == "float") {
-      return context.js.mkVar("atan2("+js_tag(y)+", "+js_tag(x)+")", "float", "atan2");
+    if (y.kind == "expr" && y.type == "float" && x.kind == "expr" && x.type == "float") {
+      return context.js.mkVar("+atan2("+coerce_double(y)+", "+coerce_double(x)+")", "float", "atan2");
     }
     thing.fail("unimplemented: atan "+JSON.stringify(y)+", "+JSON.stringify(x));
   });
   defun(sysctx, "floor", 1, function(context, thing, value) {
-    if (value.kind == "number") {
-      return {kind: "number", value: Math.floor(value.value)};
-    }
-    if (value.kind == "variable" && value.type == "float") {
-      return context.js.mkVar("floor("+js_tag(value)+")", "float", "floor");
+    if (lit_float(value)) return {kind: "expr", type: "float", value: Math.floor(value.value)};
+    if (value.kind == "expr" && value.type == "float") {
+      return context.js.mkVar("+floor("+coerce_double(value)+")", "float", "floor");
     }
     thing.fail("unimplemented: floor "+JSON.stringify(value));
   });
@@ -3301,8 +3300,8 @@ function setupSysctx() {
     defun(sysctx, opname, 2,
       function(context, thing, v1, v2) {
         var js = context.js;
-        if (v1.kind == "number" && v2.kind == "number") {
-          return {kind: "bool", value: opfun(v1.value, v2.value)};
+        if (lit_float(v1) && lit_float(v2)) {
+          return {kind: "expr", type: "bool", value: opfun(v1.value, v2.value)};
         }
         
         if (!js) thing.fail("invalid arguments to comparison in interpreted mode: "+JSON.stringify(v1)+" and "+JSON.stringify(v2));
@@ -3315,7 +3314,7 @@ function setupSysctx() {
         var _ = js_unify_vars(v1, v2);
         v1 = _.left; v2 = _.right;
         
-        return js.mkVar(js_op(jsop, js_tag(v1), js_tag(v2)), "bool", "cmp");
+        return js.mkVar(js_op(null, jsop, js_tag(v1), js_tag(v2)), "bool", "cmp");
       }
     );
   }
@@ -3328,18 +3327,18 @@ function setupSysctx() {
   defun(sysctx, "isfinite", 1, function(context, thing, value) {
     var js = context.js;
     if (!js) thing.fail("TODO js");
-    if (value.kind == "variable" && value.type == "float") {
+    if (value.kind == "expr" && value.type == "float") {
       return js.mkVar("isFinite(+("+value.value+"))|0", "bool", "isfinite");
     }
     thing.fail("unimplemented: isfinite of "+JSON.stringify(value));
   });
   defun(sysctx, "not", 1, function(context, thing, bool) {
     var js = context.js;
-    if (bool.kind == "bool") {
-      return {kind: "bool", value: !bool.value};
+    if (lit_bool(bool)) {
+      return {kind: "expr", type: "bool", value: !bool.value};
     }
     if (!js) thing.fail("TODO js");
-    if (bool.kind == "variable" && bool.type == "bool") {
+    if (bool.kind == "expr" && bool.type == "bool") {
       return js.mkVar("!"+paren_maybe(js_tag(bool), "!"), "bool", "not");
     }
     thing.fail("unimplemented: 'not' of "+JSON.stringify(bool));
@@ -3366,10 +3365,11 @@ function setupSysctx() {
         throw ("obj is not vec: "+typeof obj);
       }
       
-      var allNumbers = false, anyVecs = false;
-      if (array[0].kind == "number") {
+      var allNumbers = false, allInts = false, anyVecs = false;
+      if (lit_float(array[0])) {
         allNumbers = true;
         res = array[0].value;
+        allInts = array[0].type == "int";
       }
       else if (array[0].kind == "vector") {
         anyVecs = true;
@@ -3396,11 +3396,13 @@ function setupSysctx() {
             allNumbers = false;
           }
         }
-        else if (oper.kind != "number") allNumbers = false;
+        else if (!lit_float(oper)) allNumbers = false;
+        else if (oper.type != "int") allInts = false;
         
         if (allNumbers) {
           if (!anyVecs) {
             res = opfun(res, oper.value);
+            if (allInts) res = res | 0;
           } else {
             if (oper.kind == "vector") {
               for (var k = 0; k < res.length; ++k) 
@@ -3414,7 +3416,7 @@ function setupSysctx() {
       }
       
       if (allNumbers) {
-        if (!anyVecs) return { kind: "number", value: res };
+        if (!anyVecs) return { kind: "expr", type: allInts?"int":"float", value: res };
         else {
           return { kind: "vector", type: {kind: "vector", base: "float", size: res.length}, value: res };
         }
@@ -3431,7 +3433,7 @@ function setupSysctx() {
           for (var i = 0; i < res.length; ++i) 
             rv[i] = js_tag(array[0].type.base, vec[i]);
         } else {
-          var fv = js_tag("float", copy(js, array[0]).value);
+          var fv = js_tag("float", js_tag(copy(js, array[0])));
           for (var i = 0; i < rv.length; ++i)
             rv[i] = fv;
         }
@@ -3439,14 +3441,12 @@ function setupSysctx() {
           var oper = array[i];
           if (oper.kind == "vector") {
             for (var k = 0; k < rv.length; ++k) {
-              rv[k] = js_op(opname, rv[k], js_tag(oper.type.base, oper.value[k]));
+              rv[k] = js_op("float", opname, rv[k], js_tag(oper.type.base, oper.value[k]));
             }
-          } else if (oper.kind == "variable" && oper.type == "float" ||
-                     oper.kind == "number"
-          ) {
+          } else if (oper.kind == "expr" && (oper.type == "float" || oper.type == "int")) {
             var opn = js_tag_cast("float", copy(js, oper));
             for (var k = 0; k < rv.length; ++k) {
-              rv[k] = js_op(opname, rv[k], opn);
+              rv[k] = js_op("float", opname, rv[k], opn);
             }
           } else {
             thing.fail("unimplemented: vop "+JSON.stringify(oper));
@@ -3455,19 +3455,36 @@ function setupSysctx() {
         res = {kind: "vector", type: {kind: "vector", base: "float", size: rv.length}, value: rv};
       } else {
         var combined_op = null;
+        var combined_type = null;
+        var op_forces_int = opname == "|" || opname == "&" || opname == "^";
         for (var i = 0; i < array.length; ++i) {
           var oper = array[i];
           
-          if (oper.kind == "variable" && (oper.type == "float" || oper.type == "int") ||
-              oper.kind == "number"
-          ) {
-            if (!combined_op) combined_op = js_tag(oper);
-            else combined_op = js_op(opname, combined_op, js_tag(oper));
+          if (oper.kind == "expr" && (oper.type == "float" || oper.type == "int")) {
+            if (!combined_op) {
+              combined_type = js_type(oper);
+              combined_op = js_tag(oper);
+              if (op_forces_int && combined_type != "int") {
+                combined_type = "int";
+                combined_op = coerce_int(combined_op);
+              }
+            } else {
+              var type2 = js_type(oper);
+              if (combined_type == "int" && (type2 == "float" || type2 == "double") && !op_forces_int) {
+                combined_op = js_tag(type2, combined_op);
+                combined_type = type2;
+              }
+              var js_oper = js_tag(oper);
+              if ((combined_type == "float" || combined_type == "double") && type2 == "int") {
+                js_oper = js_tag(combined_type, js_oper);
+              }
+              combined_op = js_op(combined_type, opname, combined_op, js_oper);
+            }
           } else {
             thing.fail("unimplemented: op "+JSON.stringify(oper));
           }
         }
-        res = {kind: "variable", type: js_type(array[0]), value: combined_op};
+        res = {kind: "expr", type: combined_type, value: combined_op};
       }
       return res;
     });
@@ -3484,22 +3501,37 @@ function setupSysctx() {
   defOp("^", function(a, b) { return a^b; });
   
   defun(sysctx, "<<", 2, function(context, thing, a, b) {
-    if (a.kind == "number" && b.kind == "number") {
-      return {kind: "number", value: a.value << b.value};
+    if (lit_float(a) && lit_float(b)) {
+      return {kind: "expr", type: "int", value: a.value << b.value};
     }
-    return context.js.mkVar(js_op("<<", js_tag(a), js_tag(b)), "float", "lsh");
+    return context.js.mkVar(js_op("int", "<<", js_tag(a), js_tag(b)), "int", "lsh");
   });
   defun(sysctx, ">>", 2, function(context, thing, a, b) {
-    if (a.kind == "number" && b.kind == "number") {
-      return {kind: "number", value: a.value >> b.value};
+    if (lit_float(a) && lit_float(b)) {
+      return {kind: "expr", type: "int", value: a.value >> b.value};
     }
-    return context.js.mkVar(js_op(">>", js_tag(a), js_tag(b)), "float", "rsh");
+    return context.js.mkVar(js_op("int", ">>", js_tag(a), js_tag(b)), "int", "rsh");
   });
   defun(sysctx, ">>>", 2, function(context, thing, a, b) {
-    if (a.kind == "number" && b.kind == "number") {
-      return {kind: "number", value: a.value >>> b.value};
+    if (lit_float(a) && lit_float(b)) {
+      return {kind: "expr", type: "int", value: a.value >>> b.value};
     }
-    return context.js.mkVar(js_op(">>>", js_tag(a), js_tag(b)), "float", "ursh");
+    return context.js.mkVar(js_op("int", ">>>", js_tag(a), js_tag(b)), "int", "ursh");
+  });
+  
+  defun(sysctx, "float", 1, function(context, thing, x) {
+    if (x.kind == "expr" && x.type == "int") {
+      if (lit_int(x)) return {kind: "expr", type: "float", value: x.value};
+      return {kind: "expr", type: "float", value: js_tag("float", js_tag(x))};
+    }
+    fail(thing, "unimplemented: (float "+JSON.stringify(x)+")");
+  });
+  
+  defun(sysctx, "unsigned-to-float", 1, function(context, thing, x) {
+    if (lit_float(x)) {
+      return {kind: "expr", type: "float", value: +(x.value >>> 0)};
+    }
+    return context.js.mkVar(js_tag("float", paren_maybe(js_tag(x), ">>>")+" >>> 0"), "float", "u2f");
   });
   
   defun(sysctx, "typeof", 1, function(context, thing, value) {
@@ -3509,7 +3541,7 @@ function setupSysctx() {
   
   defun(sysctx, "vector-type", 2, function(context, thing, base, size) {
     if (base.kind != "atom") fail(thing, "vector base type must be primitive type");
-    if (size.kind != "number") fail(thing, "vector size must be number");
+    if (!lit_int(size)) fail(thing, "vector size must be number");
     return {kind: "vector", base: base.value, size: size.value|0};
   });
   
@@ -3564,14 +3596,14 @@ function setupSysctx() {
     fail(thing, "unimplemented!");
   });
   
-  sysctx.add("true", {kind: "bool", value: 1});
-  sysctx.add("false", {kind: "bool", value: 0});
+  sysctx.add("true", {kind: "expr", type: "bool", value: true});
+  sysctx.add("false", {kind: "expr", type: "bool", value: false});
   
-  sysctx.add("Infinity", {kind: "variable", type: "float", value: "Infinity"});
-  sysctx.add("dw", {kind: "variable", type: "float", value: "(dw|0)"});
-  sysctx.add("dh", {kind: "variable", type: "float", value: "(dh|0)"});
-  sysctx.add("di", {kind: "variable", type: "float", value: "(di|0)"});
-  sysctx.add("projscale", {kind: "number", value: 1});
+  sysctx.add("Infinity", {kind: "expr", type: "float", value: "Infinity"});
+  sysctx.add("dw", {kind: "expr", type: "int", value: "dw"});
+  sysctx.add("dh", {kind: "expr", type: "int", value: "dh"});
+  sysctx.add("di", {kind: "expr", type: "int", value: "di"});
+  sysctx.add("projscale", {kind: "expr", type: "int", value: 1});
   return sysctx;
 }
 
@@ -3599,6 +3631,7 @@ function compile(files) {
   jsfile.addLine("var sin = stdlib.Math.sin;");
   jsfile.addLine("var cos = stdlib.Math.cos;");
   jsfile.addLine("var tan = stdlib.Math.tan;");
+  jsfile.addLine("var imul = stdlib.Math.imul;");
   jsfile.addLine("var atan2 = stdlib.Math.atan2;");
   jsfile.addLine("var floor = stdlib.Math.floor;");
   jsfile.addLine("var fround = stdlib.Math.fround;");
@@ -3621,10 +3654,10 @@ function compile(files) {
   jsfile.addLine("var mem_f32 = new Float32Array(heap);");
   
   // scratch space for vector return
-  jsfile.addLine("var _rvec_x = 0.0;");
-  jsfile.addLine("var _rvec_y = 0.0;");
-  jsfile.addLine("var _rvec_z = 0.0;");
-  jsfile.addLine("var _rvec_w = 0.0;");
+  jsfile.addLine("var _rvec_x = "+tagf_init(0)+";");
+  jsfile.addLine("var _rvec_y = "+tagf_init(0)+";");
+  jsfile.addLine("var _rvec_z = "+tagf_init(0)+";");
+  jsfile.addLine("var _rvec_w = "+tagf_init(0)+";");
   
   // scratch space for closure pointer return
   jsfile.addLine("var _cp_base = 0;");
@@ -3738,13 +3771,21 @@ function compile(files) {
     while (context) { // bake for entire list of frozen clones
       for (var key in context.table) {
         var value = context.table[key];
-        if (typeof value == "object" && value.kind == "number") {
+        if (typeof value == "object" && lit_float(value)) {
           // bake in
           var jsname = jsfile.allocName("g", key);
           // log("baking "+jsname);
-          jsfile.addLine("variables", "var "+jsname+" = "+js_tag_init("float", value.value)+";");
-          jsfile.set("float", jsname, js_tag_init("float", value.value));
-          context.table[key] = {kind: "variable", type: "float", value: jsname};
+          var type = null;
+          if (lit_int(value)) {
+            jsfile.addLine("variables", "var "+jsname+" = "+js_tag_init("int", value.value)+";");
+            jsfile.set("int", jsname, js_tag_init("int", value.value));
+            type = "int";
+          } else {
+            jsfile.addLine("variables", "var "+jsname+" = "+js_tag_init("float", value.value)+";");
+            jsfile.set("float", jsname, js_tag_init("float", value.value));
+            type = "float";
+          }
+          context.table[key] = {kind: "expr", type: type, value: jsname};
         }
       }
       context = context.sup;
@@ -3797,9 +3838,9 @@ function compile(files) {
   
   // pass lambda-to-call to trace
   var trace_args = [
-    {kind: "variable", type: "float", value: "x|0"},
-    {kind: "variable", type: "float", value: "y|0"},
-    {kind: "variable", type: "float", value: "i|0"},
+    {kind: "expr", type: "int", value: "x"},
+    {kind: "expr", type: "int", value: "y"},
+    {kind: "expr", type: "int", value: "i"},
     main_fn,
   ];
   var flattened = flatten_array(null, trace_args);
@@ -3825,7 +3866,7 @@ function compile(files) {
   var inside_flatargs = [];
   for (var i = 0; i < flattened.types.length; ++i) {
     parnames.push("par"+i);
-    inside_flatargs.push({kind: "variable", type: flattened.types[i], value: parnames[i]});
+    inside_flatargs.push({kind: "expr", type: flattened.types[i], value: parnames[i]});
   }
   jsfile.addLine("function trace("+parnames.join(", ")+") {");
   jsfile.indent();
@@ -3852,7 +3893,7 @@ function compile(files) {
     {kind: "quote", value: inside_args[2]}
   ));
   
-  var xvar = js_tag(inside_args[0]), yvar = js_tag(inside_args[1]), ivar = js_tag(inside_args[2]);
+  var xvar = coerce_double(inside_args[0]), yvar = coerce_double(inside_args[1]), ivar = coerce_double(inside_args[2]);
   var rvar = js_tag("double", vec.value[0]), gvar = js_tag("double", vec.value[1]), bvar = js_tag("double", vec.value[2]);
   
   jsfile.addLine("hit(~~"+xvar+", ~~"+yvar+", "+ivar+", "+rvar+", "+gvar+", "+bvar+");");
