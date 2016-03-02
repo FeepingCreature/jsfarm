@@ -140,15 +140,16 @@ function Range(x_from, y_from, i_from, x_to, y_to, i_to) {
 var worktask_id = 0;
 
 /** @constructor */
-function WorkTask(range) {
+function WorkTask(range, array_id) {
   this.state = 'queued';
   this.id = worktask_id ++;
+  this.array_id = array_id;
   this.assigned_to = null;
   this.progress = 0.0;
   this.message = range;
   this.sclone = function() {
     var msg = this.message;
-    return new WorkTask(new Range(msg.x_from, msg.y_from, msg.i_from, msg.x_to, msg.y_to, msg.i_to));
+    return new WorkTask(new Range(msg.x_from, msg.y_from, msg.i_from, msg.x_to, msg.y_to, msg.i_to), null);
   };
 }
 
@@ -657,6 +658,7 @@ function RenderWorkset(connection) {
           var msg = task.message;
           if (task.state != 'accepted') throw ("finishTask: invalid state transition: '"+task.state+"' to 'done'");
           task.state = 'done';
+          self.removeTask(task);
           self.onTaskDone(msg, resultInfo);
           self.progress_ui.onTaskCompleted(task);
           
@@ -1069,7 +1071,10 @@ function RenderWorkset(connection) {
       
       var temp = this.tasks[target];
       this.tasks[target] = this.tasks[i];
+      this.tasks[target].array_id = target;
+      
       this.tasks[i] = temp;
+      this.tasks[i].array_id = i;
     }
   };
   this.cancel = function() {
@@ -1084,14 +1089,19 @@ function RenderWorkset(connection) {
     this.giveWorkToIdlePeers();
   };
   this.addTask = function(range) {
-    var task = new WorkTask(range);
+    var task = new WorkTask(range, this.tasks.length);
     if (this.onTaskAdd) this.onTaskAdd(range);
     this.tasks.push(task);
   };
+  this.removeTask = function(task) {
+    var i = task.array_id;
+    // swap last task with task, replacing it
+    this.tasks[i] = this.tasks[this.tasks.length - 1];
+    this.tasks[i].array_id = i;
+    // pop end
+    this.tasks.pop();
+  };
   this.peekQueuedTask = function() {
-    while (this.tasks.length && this.tasks[0].state == 'done') {
-      this.tasks.shift();
-    }
     for (var i = 0; i < this.tasks.length; ++i) {
       var task = this.tasks[i];
       if (task.state == 'queued') return task;
@@ -1136,16 +1146,19 @@ function RenderWorkset(connection) {
     var pushed = 0;
     if (x_didsplit && task_touches_area(tr)) {
       if (this.onTaskAdd) this.onTaskAdd(tr.message);
+      tr.array_id = this.tasks.length;
       this.tasks.push(tr);
       pushed ++;
     }
     if (x_didsplit && y_didsplit && task_touches_area(br)) {
       if (this.onTaskAdd) this.onTaskAdd(br.message);
+      br.array_id = this.tasks.length;
       this.tasks.push(br);
       pushed ++;
     }
     if (y_didsplit && task_touches_area(bl)) {
       if (this.onTaskAdd) this.onTaskAdd(bl.message);
+      bl.array_id = this.tasks.length;
       this.tasks.push(bl);
       pushed ++;
     }
