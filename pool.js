@@ -1,3 +1,5 @@
+'use strict';
+
 importScripts('compile.js');
 importScripts('files.js');
 
@@ -10,7 +12,7 @@ function log() {
   postMessage({kind: "log", message: msg});
 }
 
-fncache = {
+var fncache = {
   source: null,
   settings: {},
   fn: null
@@ -60,7 +62,7 @@ onmessage = function(e) {
     if (JSON.stringify(settings) != JSON.stringify(fncache.settings) || s2src != fncache.source) {
       var files = splitSrc(s2src);
       var jssrc = compile(files);
-      asmjs = new Function('stdlib', 'foreign', 'heap', jssrc);
+      var asmjs = new Function('stdlib', 'foreign', 'heap', jssrc);
       files = null; jssrc = null;
       
       var config = {};

@@ -1,3 +1,5 @@
+'use strict';
+
 function time() { return Date.now(); }
 
 /** @constructor */

@@ -1,3 +1,5 @@
+'use strict';
+
 Error.stackTraceLimit=undefined;
 /** @Constructor */
 function RequireLoopError(msg) {
@@ -569,12 +571,12 @@ function flatten_type_array(types) {
 }
 
 function reconstruct_by_types(js, types, vars) {
-  function take(i) {
+  var take = function(i) {
     if (vars.length < i) throw "reconstruct failure: vars ran out";
     var res = vars.slice(0, i);
     vars = vars.slice(i);
     return res;
-  }
+  };
   var array = [];
   for (var i = 0; i < types.length; ++i) {
     var type = types[i];
@@ -857,7 +859,7 @@ function sexpr_parse(context, parser, indentchecker) {
   parser.clean(); // remove detritus for text_at
   var text_at = parser.text;
   var text_post = text_at;
-  function failHere(info) {
+  var failHere = function(info) {
     var loc1 = parser.getLocation(text_at);
     var loc2 = parser.getLocation(text_post);
     log((loc1.row+1)+":"+loc1.column+": "+info);
@@ -865,7 +867,7 @@ function sexpr_parse(context, parser, indentchecker) {
     window.setErrorAt(loc1, loc2, info);
     
     throw info;
-  }
+  };
   thing.fail = failHere;
   
   var quoted = false;
@@ -881,7 +883,7 @@ function sexpr_parse(context, parser, indentchecker) {
     parser.fail("what are you even doing here man");
   }
   
-  function makething(args) {
+  var makething = function(args) {
     for (var key in args) if (args.hasOwnProperty(key)) {
       thing[key] = args[key];
     }
@@ -901,7 +903,7 @@ function sexpr_parse(context, parser, indentchecker) {
       ]};
     }
     return thing;
-  }
+  };
   
   if (parser.accept("(")) {
     text_post = parser.text;
@@ -985,7 +987,7 @@ function match_lambda(thing) {
  * via a frame pointer.
  **/
 function convert_closures(context, thing) {
-  function base_recurse(thing, fn) {
+  var base_recurse = function(thing, fn) {
     var makestruct_props = match_makestruct(thing);
     if (makestruct_props) {
       return makestruct_props.rewriteWith(function(name, value) {
@@ -1013,9 +1015,9 @@ function convert_closures(context, thing) {
       };
     }
     return thing;
-  }
+  };
   
-  function var_wrap(body, entry, value) {
+  var var_wrap = function(body, entry, value) {
     var varname = {kind: "quote", value: {
       kind: "atom",
       value: entry.rname,
@@ -1024,11 +1026,11 @@ function convert_closures(context, thing) {
       list("%set-framevar", "%stackframe", varname, value),
       body,
       list("%unset-framevar", "%stackframe", varname));
-  }
+  };
   
   var converted_lambdas = [];
   
-  function convert_lambda(lambda) {
+  var convert_lambda = function(lambda) {
     // log("==CONVERT_LAMBDA==");
     // log("== "+sexpr_dump(lambda.thing));
     var vars = [];
@@ -1047,10 +1049,10 @@ function convert_closures(context, thing) {
     // whenever we hit a variable
     var vars_rewrite_index = lambda.argnames.length;
     
-    function convert(lambda) {
+    var convert = function(lambda) {
       // log("==CONVERT==");
       // log("== "+sexpr_dump(lambda.thing));
-      function rec_var(thing, in_nested, lookup) {
+      var rec_var = function(thing, in_nested, lookup) {
         if (thing.kind == "atom") {
           return lookup(thing.value, "%stackframe") || thing;
         }
@@ -1112,9 +1114,9 @@ function convert_closures(context, thing) {
         }
         
         return base_recurse(thing, function(thing) { return rec_var(thing, in_nested, lookup); });
-      }
+      };
       
-      function rec_lift(thing) {
+      var rec_lift = function(thing) {
         var lambda_props = match_lambda(thing);
         if (lambda_props) {
           var lambda_name = unique_id("%lambda");
@@ -1140,7 +1142,7 @@ function convert_closures(context, thing) {
         }
         
         return base_recurse(thing, rec_lift);
-      }
+      };
       
       // setup for parameters that belong in the frame
       var nbody = rec_lift(rec_var(lambda.body, false, function(n, base) {
@@ -1171,10 +1173,10 @@ function convert_closures(context, thing) {
           nbody
         )
       );
-    }
+    };
     
-    function check_vars() {
-      function rec(thing, in_nested, lookup) {
+    var check_vars = function() {
+      var rec = function(thing, in_nested, lookup) {
         if (thing.kind == "atom") {
           lookup(thing.value); // touch
           return;
@@ -1219,7 +1221,7 @@ function convert_closures(context, thing) {
         }
         
         base_recurse(thing, function(thing) { rec(thing, in_nested, lookup); return thing; });
-      }
+      };
       rec(lambda.body, false, function(n, track) {
         for (var i = 0; i < lambda.argnames.length; ++i) {
           var name = lambda.argnames[i];
@@ -1229,7 +1231,7 @@ function convert_closures(context, thing) {
           }
         }
       });
-    }
+    };
     
     check_vars();
     
@@ -1247,14 +1249,14 @@ function convert_closures(context, thing) {
     return convert(lambda);
   }
   
-  function rec_find_top_lambdas(thing, lookup) {
+  var rec_find_top_lambdas = function(thing, lookup) {
     var lambdaprop = match_lambda(thing);
     if (lambdaprop) {
       return convert_lambda(lambdaprop);
     }
     
     return base_recurse(thing, function(thing) { return rec_find_top_lambdas(thing, lookup); });
-  }
+  };
   
   // log("X: ", sexpr_dump(thing));
   var nthing = rec_find_top_lambdas(thing, function(n) { return context.lookup(n); });
@@ -1309,7 +1311,7 @@ function match_let1(thing, as_alias) {
 }
 
 function unroll_macros(context, thing) {
-  function rec(thing, lookup) {
+  var rec = function(thing, lookup) {
     if (thing.kind == "list" && thing.value.length > 0 && thing.value[0].kind == "atom") {
       var let1 = match_let1(thing);
       if (let1) {
@@ -1359,7 +1361,7 @@ function unroll_macros(context, thing) {
       };
     }
     return thing;
-  }
+  };
   var res = rec(thing, function(n) { return context.lookup(n); });
   // log("1: ", sexpr_dump(thing));
   // log("2: ", sexpr_dump(res));
@@ -1695,7 +1697,7 @@ function lambda_internal(context, thing, rest) {
   var compiling_depth = 0;
   
   // create a version of the lambda adapted for the types of 'args'
-  function instantiate_and_call(callctx, callthing, args, self) {
+  var instantiate_and_call = function(callctx, callthing, args, self) {
     if (args.length != argnames.length) callthing.fail("internal logic error");
     // list all the types of all the individual parameters
     // (decomposing structs and vectors)
@@ -1731,8 +1733,6 @@ function lambda_internal(context, thing, rest) {
       }
       
       var callframe = new Context(contextview, callctx.js);
-      
-      var early_ret_type = this.type
       
       var parnames = [];
       for (var i = 0; i < partypes.length; ++i) parnames.push("par"+i);
@@ -1854,7 +1854,7 @@ function lambda_internal(context, thing, rest) {
     
     // js.addLine('alert_("call '+namehint+'");');
     return build_js_call(callthing, js, fn, ret_type, flat_args);
-  }
+  };
   
   lambda_thing.namehint = namehint;
   lambda_thing.withFixedType = function(js, type) {
@@ -2075,7 +2075,7 @@ function if_internal(context, thing, rest) {
       }
       if (!case1 && !case2) { } // phi is null, and that is fine
       else {
-        function merge_amend(after1, after2) {
+        var merge_amend = function(after1, after2) {
           js.indent();
           js.openSection("case1");
           js.add(case1_js);
@@ -2088,7 +2088,7 @@ function if_internal(context, thing, rest) {
           
           after2();
           case2_js = js.popSection("case2");
-        }
+        };
         
         if (case1.kind == "expr" && case2.kind == "expr") {
           var unify = js_unify_vars(case1, case2);
@@ -2358,7 +2358,7 @@ function eval_builtin(context, thing) {
 function Context(sup, js) {
   if (sup && !js && sup.js) js = sup.js;
   
-  reserved_identifiers = {
+  var reserved_identifiers = {
     let1: 1, def: 1, set: 1,
     alias1: 1,
     lambda: 1, macro: 1,
@@ -2620,7 +2620,7 @@ function FnTable() {
       
       if (!list.length) throw "internal error";
       
-      function is_pot(i) { return i > 0 && ((i & (i - 1)) == 0); }
+      var is_pot = function(i) { return i > 0 && ((i & (i - 1)) == 0); };
       
       var stubname = null;
       if (!is_pot(list.length)) {
@@ -2927,7 +2927,7 @@ function setupSysctx() {
   defun(sysctx, "_dump", 2, function(context, thing, info, value) {
     // js.addLine("alert(par1);");
     // if (value == null) throw "value is null";
-    function fmt(value) {
+    var fmt = function(value) {
       if (value == null) return "'null'";
       if (value.kind == "vector") {
         var parts = [];
@@ -2970,7 +2970,7 @@ function setupSysctx() {
       }
       return "'unimplemented: dump "+(JSON.stringify(value))+"'";
       // thing.fail("unimplemented: dump "+JSON.stringify(value));
-    }
+    };
     var js = context.js;
     if (!js) {
       // alert(fmt(value));
@@ -3118,9 +3118,9 @@ function setupSysctx() {
   
   defun(sysctx, "%seq2_3", 3, function(context, thing, a, b, c) { return b; });
   
-  function mkNum(i) {
+  var mkNum = function(i) {
     return {kind: "expr", type: "int", value: i};
-  }
+  };
   
   // a vector is a bundle of n variables
   defun(sysctx, "vec3f", function(context, thing, array) {
@@ -3296,7 +3296,7 @@ function setupSysctx() {
     }
     thing.fail("unimplemented: floor "+JSON.stringify(value));
   });
-  function defCmp(opname, opfun) {
+  var defCmp = function(opname, opfun) {
     defun(sysctx, opname, 2,
       function(context, thing, v1, v2) {
         var js = context.js;
@@ -3317,7 +3317,7 @@ function setupSysctx() {
         return js.mkVar(js_op(null, jsop, js_tag(v1), js_tag(v2)), "bool", "cmp");
       }
     );
-  }
+  };
   defCmp("<", function(a, b) { return a < b; });
   defCmp(">", function(a, b) { return a > b; });
   defCmp("<=", function(a, b) { return a <= b; });
@@ -3343,7 +3343,7 @@ function setupSysctx() {
     }
     thing.fail("unimplemented: 'not' of "+JSON.stringify(bool));
   });
-  function defOp(opname, opfun) {
+  var defOp = function(opname, opfun) {
     defun(sysctx, opname, function(context, thing, array) {
       var js = context.js;
       if (array.length == 0)
@@ -3355,7 +3355,7 @@ function setupSysctx() {
         }
       }
       
-      function vecIsNumbers(obj) {
+      var vecIsNumbers = function(obj) {
         if (obj.kind == "vector") {
           for (var i = 0; i < obj.type.size; ++i) {
             if (!isFloat(obj.value[i])) return false;
@@ -3363,7 +3363,7 @@ function setupSysctx() {
           return true;
         }
         throw ("obj is not vec: "+typeof obj);
-      }
+      };
       
       var allNumbers = false, allInts = false, anyVecs = false;
       if (lit_float(array[0])) {
@@ -3488,7 +3488,7 @@ function setupSysctx() {
       }
       return res;
     });
-  }
+  };
   defOp("+", function(a, b) { return a+b; });
   defOp("-", function(a, b) { return a-b; });
   defOp("*", function(a, b) { return a*b; });
@@ -3610,12 +3610,12 @@ function setupSysctx() {
 function compile(files) {
   "use strict";
   
-  function get_file(fn) {
+  var get_file = function(fn) {
     for (var i = 0; i < files.length; ++i) {
       if (files[i].name == fn) return files[i];
     }
     return null;
-  }
+  };
   
   var jsfile = new JsFile();
   

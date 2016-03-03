@@ -1,3 +1,5 @@
+'use strict';
+
 function setStatus(msg) {
   $('#StatusPanel').html(msg);
 }
@@ -78,7 +80,10 @@ function RobinQueue(limit) {
       this.scores[task.origin] = 0;
     }
     var msg = task.msg.message;
-    var cost = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from) * (task.i_to - task.i_from);
+    var cost = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from) * (msg.i_to - msg.i_from);
+    if (cost != cost) {
+      log("cost is nan, what the shit", JSON.stringify(msg));
+    }
     this.scores[task.origin] -= cost; // penalize
   }
   this.popTask = function() {

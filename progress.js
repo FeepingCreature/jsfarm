@@ -1,3 +1,5 @@
+'use strict';
+
 function formatTime(d) {
   var seconds = Math.floor(d / 1000);
   

@@ -1,3 +1,5 @@
+'use strict';
+
 // shared helper
 function logJq(jq) {
   if (typeof window !== 'undefined') {

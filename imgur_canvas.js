@@ -1,3 +1,5 @@
+'use strict';
+
 function setReady(div) {
   div.css('cursor', 'pointer');
   div.html("Upload to Imgur");
