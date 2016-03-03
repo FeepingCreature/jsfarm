@@ -28,7 +28,9 @@ function log_id(id) {
 function getMyLabel(self) {
   var jq_ident = ""+document.getElementById('ident').value;
   if (jq_ident == "") jq_ident = null;
-  return jq_ident || self.id;
+  if (jq_ident) return jq_ident;
+  var hw = hashwords({wordLength: [1,5]});
+  return hw.hash(self.id).join("");
 }
 
 function decodeAddress(address) {
@@ -444,8 +446,8 @@ function ServerConnection() {
     
     self.peerjs.on('connection', self.handleIncomingConnection.bind(self));
     self.peerjs.on('open', function(id) {
-      setStatus("Status: connected as "+id);
       self.id = id;
+      setStatus("Status: connected as <span title=\""+self.id+"\">"+getMyLabel(self)+"</span>");
       $(window).on('unload', null, Disconnect);
       
       // sanity limit
