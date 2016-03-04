@@ -2394,29 +2394,6 @@ function Context(sup, js) {
     }
   };
   
-  // TODO remove
-  this.lookupPath = function(name, path, sysctx, local) {
-    local = local || false;
-    var context = this;
-    while (true) {
-      if (context === sysctx) path = ["sysctx"];
-      
-      if (typeof context.table[name] !== "undefined") return path.concat(["table[\""+jsStringEscape(name)+"\"]"]);
-      
-      if (local) return null;
-      
-      for (var i = 0; i < context.requires.length; ++i) {
-        // requires are not transitive
-        var res = context.requires[i].lookupPath(name, path.concat(["requires["+i+"]"]), sysctx, true);
-        if (res) return res;
-      }
-      if (context.sup) {
-        context = context.sup;
-        path.push("sup");
-      } else return null;
-    }
-  };
-  
   this.add = function(name, value) {
     if (typeof name != "string") {
       log("what is a "+name);
