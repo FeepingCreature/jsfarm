@@ -1706,7 +1706,23 @@ function lambda_internal(context, thing, rest) {
     // log("debug call", namehint);
     if (!js) return standard_call(callctx, callthing, argnames, args);
     
-    var partypes = [];
+    if (lambda_thing.hasOwnProperty("type")) {
+      var type = lambda_thing.type;
+      if (type.kind != "function") {
+        fail(thing, "function, but not typed as function? (but '"+type.kind+"')");
+      }
+      if (type.args.length != args.length) {
+        fail(callthing, "wrong arity: function typed as expecting "+type.args.length+" args");
+      }
+      for (var i = 0; i < args.length; ++i) {
+        var decltype = type.args[i];
+        var argtype = js_type(args[i]);
+        if (decltype.kind == "atom") decltype = decltype.value;
+        if (JSON.stringify(decltype) != JSON.stringify(argtype)) {
+          fail(callthing, "wrong type: function typed as expecting "+JSON.stringify(decltype)+" but called with "+JSON.stringify(argtype)+"!");
+        }
+      }
+    }
     
     var flattened = flatten_array(callthing, args);
     var signature = flattened.signature;
@@ -3547,10 +3563,12 @@ function setupSysctx() {
   defun(sysctx, "type", 2, function(context, thing, type, value) {
     if (typeof value == "object" && value) {
       if (value.kind == "function-poly") {
-        // TODO
-        // return value.withFixedType(context.js, type);
-        value.type = type;
-        return value;
+        if (context.js) {
+          return value.withFixedType(context.js, type);
+        } else {
+          value.type = type;
+          return value;
+        }
       }
       if (value.kind == "closure-poly") {
         if (context.js) {
