@@ -66,32 +66,31 @@ function RobinTask(con, evictfn) {
 
 /** @constructor */
 function RobinQueue(limit) {
-  this.scores = Object.create(null);
+  this.last_assigned = Object.create(null);
   this.limit = limit;
   this.tasks = [];
-  this.getScoreForTask = function(task) {
-    if (task.prioritize) return 1;
-    if (task.origin in this.scores) {
-      return this.scores[task.origin];
+  this.getTimeSinceLastAssigned = function(task) {
+    if (task.prioritize) return 1/0; // always give priority
+    if (task.origin in this.last_assigned) {
+      return time() - this.last_assigned;
     }
     return 0;
   };
-  this.penalizeTaskOrigin = function(task) {
-    if (task.prioritize) return;
-    if (!(task.origin in this.scores)) {
-      this.scores[task.origin] = 0;
+  this.ensureTaskHysteresis = function(task, grace) {
+    if (task.prioritize) return; // has priority anyways
+    this.last_assigned[task.origin] = time();
+    for (var key in this.last_assigned) if (key != task.origin) {
+      // punt all others into the future; attempt to guarantee
+      // that we'll get at least [grace] of continuous runtime
+      // (reduces kickchurn hopefully)
+      task.origin[key] += grace;
     }
-    var msg = task.msg.message;
-    var cost = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from) * (msg.i_to - msg.i_from);
-    if (cost != cost) {
-      log("cost is nan, what the shit", JSON.stringify(msg));
-    }
-    this.scores[task.origin] -= cost; // penalize
   }
   this.popTask = function() {
     if (!this.tasks.length) return null;
     var task = this.tasks.shift(); // fifo
-    this.penalizeTaskOrigin(task); // only penalize now that we're actually starting to compute it!
+    // TODO do something better than this
+    // this.ensureTaskHysteresis(task, 10*1000); // only do so now that we're actually starting to compute it!
     return task;
   };
   this.addTaskMaybe = function(task) {
@@ -99,30 +98,26 @@ function RobinQueue(limit) {
     var evict_task = null;
     if (this.tasks.length == this.limit) {
       // maybe we replace a queued task?
-      // find the queued task with the worst score
+      // find the queued task with the shortest time since last assignment
       var worstscore = null, worstscore_id = null;
       for (var i = 0; i < this.tasks.length; ++i) {
         if (this.tasks[i].origin === task.origin) continue; // no point
-        var oldtaskscore = this.getScoreForTask(this.tasks[i]);
-        if (!worstscore || oldtaskscore < worstscore) {
+        var oldtaskscore = this.getTimeSinceLastAssigned(this.tasks[i]);
+        if (!worstscore || oldtaskscore < worstscore) { // find the client-most-recently-assigned task
           worstscore = oldtaskscore;
           worstscore_id = i;
         }
       }
       
-      var ntaskscore = this.getScoreForTask(task);
+      var ntaskscore = this.getTimeSinceLastAssigned(task);
       // if (worstscore) log("taskqueue at limit: can", ntaskscore, "beat out", worstscore, "as", task.origin, "vs.", this.tasks[worstscore_id].origin);
-      if (!worstscore || worstscore >= ntaskscore) { // no tasks with worse score
-        return false;
+      if (!worstscore || ntaskscore <= worstscore) { // we've been started even more recent than the most recent one in the list
+        return false; // don't replace
       }
       
       // we replace worstscore_id
       evict_task = this.tasks[worstscore_id];
       this.tasks.splice(worstscore_id, 1);
-      
-      // kick 'em while they're down
-      // (the goal is to reduce evict churn)
-      this.penalizeTaskOrigin(evict_task);
       // log("evict", JSON.stringify(evict_task.msg), "because", ntaskscore, "beats", worstscore);
     }
     this.tasks.push(task);
