@@ -94,9 +94,25 @@
 (def quasiquote (macro (arg)
   (quasicode arg)))
 
-(def and (macro (a b) `(if ,a (if ,b true false) false)))
+(def andfn
+     (lambda (arg)
+       (if (= (size arg) 0)
+           true
+           (if (= (size arg) 1)
+               (first arg)
+               (list 'if (first arg) (andfn (rest arg)) false)))))
 
-(def or (macro (a b) `(if ,a true (if ,b true false))))
+(def and (macro (...) (andfn ...)))
+
+(def orfn
+     (lambda (arg)
+       (if (= (size arg) 0)
+           false
+           (if (= (size arg) 1)
+               (first arg)
+               (list 'if (first arg) true (orfn (rest arg)))))))
+
+(def or (macro (...) (orfn ...)))
 
 (def quotelist (lambda (list)
   (if (= (size list) 0)
