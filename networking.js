@@ -272,7 +272,7 @@ function ServerConnection() {
         con.send({kind: 'result', channel: msg.channel, data: data.buffer});
         delete wrapper.onComplete;
         
-        var pixels = data.buffer.byteLength / 4;
+        var pixels = data.buffer.byteLength / 12;
         con.helpstats.onSendResult((msg.message.i_to - msg.message.i_from) * pixels);
         
         // worker has gone idle, maybe we can assign a queued task?
@@ -666,7 +666,7 @@ function RenderWorkset(connection) {
           if (task.state != 'accepted') throw ("finishTask: invalid state transition: '"+task.state+"' to 'done'");
           task.state = 'done';
           self.removeTask(task);
-          self.onTaskDone(msg, resultInfo);
+          self.onTaskDone(msg, resultInfo.data);
           self.progress_ui.onTaskCompleted(task);
           
           var samples_rendered = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from) * (msg.i_to - msg.i_from);
@@ -843,7 +843,7 @@ function RenderWorkset(connection) {
               var data = null;
               var reactTaskResultReceived = function(msg) {
                 if (msg.kind == 'result') {
-                  data = new Uint8Array(msg.data);
+                  data = new Float32Array(msg.data);
                   // log_id(id, "task", channel, "received data", data.length);
                   advance();
                   return true;

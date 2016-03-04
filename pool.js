@@ -24,14 +24,6 @@ function is_pot(i) {
 
 var global_ram = new ArrayBuffer(1024*32768);
 
-var arraycache_u8 = {}; // we only use pot ranges, so this should be a low number
-function get_uint8array(size) {
-  if (!arraycache_u8.hasOwnProperty(size)) {
-    arraycache_u8[size] = new Uint8Array(size);
-  }
-  return arraycache_u8[size];
-}
-
 var arraycache_float = {}; // we only use pot ranges, so this should be a low number
 function get_floatarray(size) {
   if (!arraycache_float.hasOwnProperty(size)) {
@@ -83,9 +75,13 @@ onmessage = function(e) {
         var base = (y - config.y_from) * width + (x - config.x_from);
         var array = config.array;
         if (base >= 0 && base < array.length) {
-          array[base*4 + 0] += Math.max(0, Math.min(1, r));
-          array[base*4 + 1] += Math.max(0, Math.min(1, g));
-          array[base*4 + 2] += Math.max(0, Math.min(1, b));
+          // don't limit intensity per ray to 0..1
+          // array[base*3 + 0] += Math.max(0, Math.min(1, r));
+          // array[base*3 + 1] += Math.max(0, Math.min(1, g));
+          // array[base*3 + 2] += Math.max(0, Math.min(1, b));
+          array[base*3 + 0] += r;
+          array[base*3 + 1] += g;
+          array[base*3 + 2] += b;
         }
       };
       
@@ -117,7 +113,7 @@ onmessage = function(e) {
       fncache.source = s2src;
       fncache.settings = settings;
       fncache.fn = function(x_from, y_from, i_from, x_to, y_to, i_to) {
-        var size = 4 * (x_to - x_from) * (y_to - y_from);
+        var size = 3 * (x_to - x_from) * (y_to - y_from);
         var array = get_floatarray(size);
         
         config.array = array;
@@ -135,24 +131,11 @@ onmessage = function(e) {
         
         compiled.executeRange(x_from, y_from, i_from, x_to, y_to, i_to);
         
-        var di = i_to - i_from;
-        var result = get_uint8array(size);
-        for (var y = 0; y < y_to - y_from; ++y) {
-          var y_base = y * (x_to - x_from);
-          for (var x = 0; x < x_to - x_from; ++x) {
-            var base = y_base + x;
-            result[base*4 + 0] = Math.floor(array[base*4 + 0] * 255.99 / di);
-            result[base*4 + 1] = Math.floor(array[base*4 + 1] * 255.99 / di);
-            result[base*4 + 2] = Math.floor(array[base*4 + 2] * 255.99 / di);
-            result[base*4 + 3] = 255;
-          }
-        }
-        
         postMessage({
           kind: "finish",
           x_from: x_from, y_from: y_from, i_from: i_from,
           x_to  : x_to  , y_to  : y_to  , i_to  : i_to  ,
-          data: result
+          data: array
         });
       };
     }

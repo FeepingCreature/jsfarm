@@ -435,12 +435,21 @@ function RenderScene() {
     ctx.fillRect(task.x_from, task.y_from, task.x_to - task.x_from, task.y_to - task.y_from);
   };
   
-  workset.onTaskDone = function(task, msg) {
-    var wdata = msg.data;
-    var brush = get_brush(task.x_to - task.x_from, task.y_to - task.y_from);
+  workset.onTaskDone = function(task, wdata) {
+    var
+      dw = task.x_to - task.x_from,
+      dh = task.y_to - task.y_from,
+      di = task.i_to - task.i_from;
+    var brush = get_brush(dw, dh);
     var bdata = brush.data;
-    for (var i = 0; i < bdata.length; ++i) {
-      bdata[i] = wdata[i];
+    for (var y = 0; y < dh; ++y) {
+      for (var x = 0; x < dw; ++x) {
+        var base = y * dw + x;
+        bdata[base*4+0] = Math.floor(Math.max(0, Math.min(1, wdata[base*3+0] / di)) * 255.99);
+        bdata[base*4+1] = Math.floor(Math.max(0, Math.min(1, wdata[base*3+1] / di)) * 255.99);
+        bdata[base*4+2] = Math.floor(Math.max(0, Math.min(1, wdata[base*3+2] / di)) * 255.99);
+        bdata[base*4+3] = 255;
+      }
     }
     ctx.putImageData(brush, task.x_from, task.y_from);
   };
