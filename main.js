@@ -12,6 +12,7 @@ var editor_cfg = {
   autoCloseBrackets: true,
   indentUnit: 2,
   gutters: ["error-gutter"],
+  viewportMargin: Infinity,
   extraKeys: {
     'Ctrl-Enter': function(cm) {
       RenderOrCancel();
@@ -487,11 +488,13 @@ function RenderOrCancel() {
 function Connect() {
   window.connection = new ServerConnection;
   window.connection.connect();
+  $('#settings input').attr('disabled', 'disabled');
   log("Connected and waiting for work.");
 }
 
 function Disconnect() {
   if (window.hasOwnProperty('workset')) CancelRender();
+  $('#settings input').removeAttr('disabled');
   window.connection.disconnect();
   window.connection = null;
 }

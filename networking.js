@@ -638,7 +638,10 @@ function RenderWorkset(connection) {
         
         var failTask = function(task) {
           if (task.state != 'accepted') throw ("failTask: invalid state transition: '"+task.state+"' to 'failed'");
-          task.state = 'failed';
+          // Errors may happen for weird and random reasons!
+          // task.state = 'failed';
+          task.state = 'queued';
+          task.assigned_to = null;
           self.progress_ui.onTaskAborted(task);
           delete tasksInFlight[task.id];
           self.checkAreWeDone();

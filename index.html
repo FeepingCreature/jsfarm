@@ -179,7 +179,8 @@
 (def max (lambda (a b)
   (if (> a b) a b)))
 
-(def sum (lambda (vec) (+ (: vec x) (: vec y) (: vec z))))
+(def SumType (function-type (list Vec3f) 'float))
+(def sum (type SumType (lambda (vec) (+ (: vec x) (: vec y) (: vec z)))))
 (def length (lambda (vec) (sqrt (sum (* vec vec)))))
 (def Vec3f (vector-type 'float 3))
 (def Vec4f (vector-type 'float 4))
