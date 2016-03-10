@@ -1076,12 +1076,6 @@ function convert_closures(context, thing) {
               if (n == let1_props.name) return null; // mask
               return lookup(n, base);
             });
-            if (varinfo && varinfo.num_accesses == 1) {
-              // log("we have found a variable that is only accessed once: "+varinfo.name);
-              // it is _conceivable_ that somebody will declare a variable, and only use it once -
-              // to assign a value to it. This person is evil, and deserves to have their code break.
-              let1_props.ident = "alias1";
-            }
             return let1_props.rewriteWith(nvalue, nbody);
           }
           
