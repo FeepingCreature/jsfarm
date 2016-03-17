@@ -278,6 +278,9 @@ function js_get_at(type, base, offs) {
     return res;
   }
   if (typeof type == "object") {
+    if (type.kind == "pointer") {
+      return {kind: "pointer", base: js_get_at("int", base, offs), type: type.type};
+    }
     if (type.kind == "struct") {
       var value = {};
       for (var key in type.types) if (type.types.hasOwnProperty(key)) {
@@ -391,7 +394,9 @@ function flatten(base, thing) {
     return [thing]; // hopeless
   
   if (thing.kind == "struct") {
-    if (!thing.hasOwnProperty("base")) fail(base, "bad struct for runtime call");
+    fail(base, "cannot pass struct as parameter (must be pointer) - internal issue");
+  }
+  if (thing.kind == "pointer") {
     return [thing.base];
   }
   if (thing.kind == "frame") {
@@ -459,6 +464,9 @@ function flatten_type(type) {
     return [type.base.type];
   }
   if (type.kind == "struct") {
+    fail(null, "how to flatten struct - internal issue");
+  }
+  if (type.kind == "pointer") {
     return ["int"];
   }
   if (type.kind == "closure") { // type of value.kind="closure-pointer"
@@ -473,11 +481,15 @@ function get_type_signature(thing) {
   if (thing.kind == "expr") return get_type_signature(thing.type);
   if (thing.kind == "vector" && 'type' in thing) return get_type_signature(thing.type);
   if (thing.kind == "vector") return "vector_"+thing.size+"_"+thing.base;
+  if (thing.kind == "pointer" && thing.type.kind == "struct") {
+    return "p_" + get_type_signature(thing.type);
+  }
   if (thing.kind == "struct") {
-    var values = thing.value;
+    if (thing.hasOwnProperty("type")) thing = thing.type;
+    var types = thing.types;
     var parts = [];
-    for (var key in values) if (values.hasOwnProperty(key)) {
-      parts.push(get_type_signature(values[key]));
+    for (var key in types) if (types.hasOwnProperty(key)) {
+      parts.push(get_type_signature(types[key]));
     }
     return "struct_" + parts.join("_") + "_";
   }
@@ -566,8 +578,13 @@ function reconstruct_by_types(js, types, vars) {
       array.push({kind: "frame", entries: type.entries, base: take(1)[0]});
       continue;
     }
+    if (type.kind == "pointer") {
+      array.push({kind: "pointer", base: take(1)[0], type: type.type});
+      continue;
+    }
     if (type.kind == "struct") {
-      array.push(js_get_at(type, take(1)[0], 0));
+      fail(null, "internal error - reconstruct struct");
+      // array.push(js_get_at(type, take(1)[0], 0));
       continue;
     }
     if (type.kind == "vector") {
@@ -591,6 +608,7 @@ function reconstruct_by_types(js, types, vars) {
 function js_type(thing) {
   if (thing.kind == "expr") return thing.type;
   if (thing.kind == "struct") return thing.type;
+  if (thing.kind == "pointer") return {kind: "pointer", type: thing.type};
   if (thing.kind == "vector") return thing.type;
   if (thing.kind == "function" || thing.kind == "closure") {
     return thing.type;
@@ -609,6 +627,7 @@ function js_size(thing) {
     var type = thing.type;
     if (type == "float" || type == "int" || type == "bool") return 4;
   }
+  if (thing.kind == "pointer") return 4;
   if (thing.kind == "struct") return thing.type.size;
   if (thing.kind == "vector") {
     var res = js_size({kind: "expr", type: thing.type.base, value: "ERROR HERE js_size"}) * thing.type.size;
@@ -635,6 +654,7 @@ function reconstruct(js, thing, array) {
   else if (thing.kind == "expr") type = thing.type;
   else if (thing.kind == "struct") type = "struct";
   else if (thing.kind == "frame") type = "frame";
+  else if (thing.kind == "pointer") type = "pointer";
   else if (thing.kind == "closure") type = "closure";
   else if (thing.kind == "closure-poly") type = "closure-poly";
   else if (thing.kind == "closure-pointer") type = "closure-pointer";
@@ -705,10 +725,14 @@ function reconstruct(js, thing, array) {
     }
   }
   if (type == "struct") {
+    fail(thing, "internal issue - cannot pass struct as parameter");
+  }
+  if (type == "pointer" && thing.type.kind == "struct") {
     var base = array[0], rest = array.slice(1);
     var type = thing.type;
     
-    var value = js_get_at(type, base, 0);
+    if (base == null) throw "internal error";
+    var value = {kind: "pointer", base: base, type: type};
     return { rest: rest, value: value };
   }
   
@@ -1426,6 +1450,9 @@ function copy(js, thing) {
     res.fnptr.offset = copy(js, res.fnptr.offset);
     return res;
   }
+  if (thing.kind == "pointer" && thing.hasOwnProperty("base")) {
+    return {kind: "pointer", base: copy(js, thing.base), type: thing.type};
+  }
   if (thing.kind == "struct" && thing.hasOwnProperty("base")) {
     return js_get_at(thing.type, copy(js, thing.base), 0);
   }
@@ -1498,6 +1525,7 @@ function def_internal(context, thing, rest) {
   } else {
     value = context.eval(valuepar);
     if (value == null) fail(thing, "'def' value is null");
+    value = unbind_lv(value);
   }
   context.namehint = backup_namehint;
   
@@ -1527,6 +1555,13 @@ function js_set(js, thing, target, value) {
       fail(thing, "frame-assignment only works if base is defined .. I think?");
     js_set(js, thing, target.base, value.base);
     delete target.entries; // Unsafe!!
+    return;
+  }
+  if (target.kind == "pointer" && value.kind == "pointer") {
+    if (JSON.stringify(target.type) != JSON.stringify(value.type)) {
+      fail(thing, "struct type mismatch!");
+    }
+    js_set(js, thing, target.base, value.base);
     return;
   }
   if (target.kind == "struct" && value.kind == "struct") {
@@ -1583,6 +1618,14 @@ function set_internal(context, thing, rest) {
   
   var js = context.js;
   if (js) {
+    if (target.kind == "pointer") {
+      var base = js.mkVar(js_tag(target.base), "int", "targetp");
+      target = js_get_at(target.type, base, 0);
+    }
+    if (value.kind == "pointer") {
+      var base = js.mkVar(js_tag(value.base), "int", "valuep");
+      value = js_get_at(value.type, base, 0);
+    }
     js_set(js, thing, target, value);
     // return value;
     return null;
@@ -1692,8 +1735,12 @@ function build_js_call(thing, js, fname, ret_type, flat_args) {
     });
   }
   else if (ret_type.kind == "struct") {
+    fail(thing, "It is not a good thing to try and return a struct by value!");
+    // ret_value = js_get_at(ret_type, ret_base, 0);
+  }
+  else if (ret_type.kind == "pointer") {
     var ret_base = js.mkVar(call, "int", "ret_base");
-    ret_value = js_get_at(ret_type, ret_base, 0);
+    ret_value = {kind: "pointer", base: ret_base, type: ret_type.type};
   }
   else if (ret_type.kind == "closure-poly") {
     js.addLine(call+";");
@@ -1958,7 +2005,7 @@ function lambda_internal(context, thing, rest) {
       kind: "function",
       signature: sign,
       ret: ret_type,
-      args: type.args,
+      args: structs_to_pointers(type.args),
       fname: fn
     };
   };
@@ -2116,6 +2163,16 @@ function if_internal(context, thing, rest) {
             function() {
               js_set(js, thing, phi, case2);
             });
+        } else if (case1.kind == "pointer" && case2.kind == "pointer") {
+          if (JSON.stringify(case1.type) != JSON.stringify(case2.type)) {
+            fail(thing, "type mismatch between pointers in if branches: "+JSON.stringify(case1.type)+" and "+JSON.stringify(case2.type));
+          }
+          js.unindent();
+          var phivar = js.mkVar(null, "int", "phiptr");
+          phi = {kind: "pointer", base: phivar, type: case1.type};
+          merge_amend(
+            function() { js.set("int", phivar.value, case1.base.value); },
+            function() { js.set("int", phivar.value, case2.base.value); });
         } else if (case1.kind == "struct" && case2.kind == "struct") {
           if (JSON.stringify(case1.type) != JSON.stringify(case2.type)) {
             fail(thing, "type mismatch between structs in if branches: "+JSON.stringify(case1.type)+" and "+JSON.stringify(case2.type));
@@ -2313,6 +2370,16 @@ function make_struct_on(location, context, thing, names, values) {
   } else throw ("internal error "+location);
   
   alloc_struct_at(res, context, thing, names, values, base); 
+  
+  if (location == "heap") {
+    if (context.js) {
+      return {kind: "pointer", base: base, type: res.type};
+    } else {
+      // interpreted pointer emulation
+      return {kind: "pointer", value: res, type: res.type};
+    }
+  }
+  
   return res;
 }
 
@@ -2325,7 +2392,17 @@ function makestruct_internal(context, thing, rest, location) {
   var values_arr = makestruct_props.values;
   
   for (var i = 0; i < values_arr.length; ++i) {
-    values_arr[i] = context.eval(values_arr[i]);
+    var value = context.eval(values_arr[i]);
+    if (value && value.kind == "pointer" && value.type.kind == "struct") {
+      // flatten out
+      if (value.hasOwnProperty("base")) {
+        value = js_get_at(value.type, value.base, 0);
+      } else {
+        // interpreted pointer emulation
+        value = value.value;
+      }
+    }
+    values_arr[i] = value;
   }
   
   return make_struct_on(location, context, thing, names_arr, values_arr);
@@ -2489,6 +2566,11 @@ function Context(sup, js) {
         
         for (var i = 1; i < list.length; ++i) {
           var arg = this.eval(list[i]);
+          // structs are passed as pointers! (but only to user functions)
+          if (op.internal != true && arg && arg.kind == "struct" && arg.hasOwnProperty('base')) {
+            if (arg.base == null) throw "internal error";
+            arg = {kind: "pointer", base: arg.base, type: arg.type};
+          }
           // log("Xdebug:", i, sexpr_dump(arg), /*"<-", sexpr_dump(list[i]), */"at", this.info());
           args.push(arg);
         }
@@ -2558,6 +2640,12 @@ function js_return_type(type) {
   if (type == "int" || type == "float" || type == "bool" || type == "void") return type;
   if (type.kind == "closure" || type.kind == "vector") {
     return "void"; // passed in globals
+  }
+  if (type.kind == "pointer") {
+    return "int";
+  }
+  if (type.kind == "struct") {
+    fail(null, "bad return type (struct)");
   }
   fail(null, "unimplemented: js_return_type("+JSON.stringify(type)+")");
 }
@@ -2874,6 +2962,19 @@ function closureTypeToFnType(type, base) {
   };
 }
 
+function structs_to_pointers(args) {
+  var res = [];
+  for (var i = 0; i < args.length; ++i) {
+    var arg = args[i];
+    if (arg.kind == "struct") {
+      res.push({kind: "pointer", type: arg});
+    } else {
+      res.push(arg);
+    }
+  }
+  return res;
+}
+
 function js_call_fnptr(js, fnptr, thing, args) {
   var tblname = js.fntable.getTblNameForType(fnptr.type);
   var tbl_expr = tblname+"["+js_op(null, "&", js_tag(fnptr.offset), js.fntable.getMaskId(tblname))+"]";
@@ -2934,6 +3035,10 @@ function setupSysctx() {
         if (!list.length) return "'()'";
         return "'('+"+list.join("+' '+")+"+')'";
       }
+      if (value.kind == "pointer") {
+        var base = js.mkVar(js_tag(value.base), "int", "pointer");
+        return "'&'+"+fmt(js_get_at(value.type, base, 0));
+      }
       if (value.kind == "struct") {
         var list = [];
         for (var key in value.value) if (value.value.hasOwnProperty(key)) {
@@ -2981,7 +3086,12 @@ function setupSysctx() {
     return {kind: "expr", type: "bool", value: value.kind == "list"};
   });
   defun(sysctx, "struct?", "1", function(context, thing, value) {
-    return {kind: "expr", type: "bool", value: value.kind == "struct"};
+    return {
+      kind: "expr",
+      type: "bool",
+      value: value.kind == "struct"
+          || value.kind == "pointer" && value.type.kind == "struct"
+    };
   });
   defun(sysctx, "callable?", "1", function(context, thing, value) {
     return {kind: "expr", type: "bool", value: can_call(value)};
@@ -3167,6 +3277,9 @@ function setupSysctx() {
     if (base == null) fail(thing, "first value is null");
     if (base.kind == "list") throw "wtf";
     for (var i = 1; i < array.length; ++i) {
+      if (base.kind == "pointer") {
+        base = js_get_at(base.type, base.base, 0);
+      }
       // log("debug _element "+i+":", sexpr_dump(base));
       var key = array[i];
       if (key.kind != "atom")
@@ -3547,6 +3660,7 @@ function setupSysctx() {
   
   defun(sysctx, "typeof", 1, function(context, thing, value) {
     if (value.kind == "struct") return value.type;
+    if (value.kind == "pointer") return {kind: "pointer", type: value.type};
     fail(thing, "unimplemented: typeof "+JSON.stringify(value));
   });
   
@@ -3562,7 +3676,7 @@ function setupSysctx() {
     return {
       kind: "function",
       ret: ret,
-      args: argtypes.value,
+      args: structs_to_pointers(argtypes.value),
       fail: thing.fail,
     };
   });
@@ -3573,7 +3687,7 @@ function setupSysctx() {
     return {
       kind: "closure",
       ret: ret,
-      args: argtypes.value,
+      args: structs_to_pointers(argtypes.value),
       fail: thing.fail,
     };
   });
