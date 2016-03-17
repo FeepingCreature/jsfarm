@@ -1437,6 +1437,14 @@ function copy(js, thing) {
   fail(thing, "how copy "+thing.kind+" "+JSON.stringify(thing));
 }
 
+// unbind lvalue semantics - translate: delete thing.set
+function unbind_lv(thing) {
+  if (!thing || !thing.hasOwnProperty("set")) return thing;
+  thing = flatclone(thing);
+  delete thing.set;
+  return thing;
+}
+
 function let1_internal(context, thing, rest) {
   var let1_props = match_let1(thing);
   if (!let1_props) throw "internal error";
@@ -1451,6 +1459,8 @@ function let1_internal(context, thing, rest) {
   } else {
     value = letctx.eval(value);
   }
+  value = unbind_lv(value);
+  
   // if (value == null) fail(let1_props.thing.value[1], "'let' value is null");
   // if (value == null) log("debug let1:", name, "=", sexpr_dump(value), " ("+((value == null)?"null":"defined")+") from ", sexpr_dump(let1_props.value));
   letctx.add(name, value);
@@ -1464,8 +1474,10 @@ function alias1_internal(context, thing, rest) {
   var name = alias1_props.name;
   var value = alias1_props.value;
   
+  value = unbind_lv(context.eval(value));
+  
   var aliasctx = new Context(context);
-  aliasctx.add(name, aliasctx.eval(value)); // the difference - no copy()!
+  aliasctx.add(name, value); // the difference - no copy()!
   return aliasctx.eval(alias1_props.body);
 }
 
@@ -1560,26 +1572,38 @@ function js_set(js, thing, target, value) {
   fail(thing, "unimplemented: "+sexpr_dump(thing)+" -- "+JSON.stringify(target)+" = "+JSON.stringify(value));
 }
 
+
 function set_internal(context, thing, rest) {
   if (rest.length != 2) fail(thing, "'set' expected two arguments, target and value");
   var target = rest[0];
   var value = rest[1];
+  
+  target = context.eval(target);
+  value = context.eval(value);
+  
   var js = context.js;
   if (js) {
-    var value_js = context.eval(value);
-    js_set(js, thing, context.eval(target), value_js);
-    // return value_js;
+    js_set(js, thing, target, value);
+    // return value;
     return null;
   }
   
-  if (target.kind != "atom") fail(target, "'set' requires an atom as the lhs in interpreted mode");
-  var name = target.value;
+  if (target.hasOwnProperty("set")) { // lvalue semantics
+    if (target.kind == "struct" && value.kind == "struct") {
+      // copy into target to imitate runtime semantics
+      for (var key in value.value) if (value.value.hasOwnProperty(key)) {
+        // TODO: deeper copy necessary?
+        target.value[key] = value.value[key];
+      }
+    } else {
+      target.set(value);
+    }
+    // return value;
+    return null;
+  }
   
-  value = context.eval(value);
-  context.modify(name, value);
-  
-  // return value;
-  return null;
+  fail(target, "'set' requires a target with lvalue semantics as the lhs!");
+}
 
 function generic_return(js, thing) {
   if (thing == null) {
@@ -1719,7 +1743,7 @@ function lambda_internal(context, thing, rest) {
     
     // callframe.add("self", lambda_thing);
     for (var i = 0; i < args.length; ++i) {
-      var arg = args[i];
+      var arg = unbind_lv(args[i]);
       // log("debug call:", argnames[i], "=", sexpr_dump(arg));
       callframe.add(argnames[i], arg);
     }
@@ -1827,7 +1851,8 @@ function lambda_internal(context, thing, rest) {
       // log("inside_args=", JSON.stringify(inside_args), "for", namehint);
       
       for (var i = 0; i < argnames.length; ++i) {
-        callframe.add(argnames[i], inside_args[i]);
+        var arg = unbind_lv(inside_args[i]);
+        callframe.add(argnames[i], arg);
       }
       
       compiling_depth ++;
@@ -1977,7 +2002,8 @@ function macro_internal(context, thing, rest) {
       var callframe = new Context(context);
       if (variadic) {
         for (var i = 0; i < argnames.length - 1; ++i) {
-          callframe.add(argnames[i], args[i]);
+          var arg = unbind_lv(args[i]);
+          callframe.add(argnames[i], arg);
         }
         callframe.add("...", {
           kind: "list",
@@ -1987,7 +2013,8 @@ function macro_internal(context, thing, rest) {
       } else {
         for (var i = 0; i < args.length; ++i) {
           // log("for macro:", argnames[i], " = ", sexpr_dump(args[i]));
-          callframe.add(argnames[i], args[i]); // add unevaluated
+          var arg = unbind_lv(args[i]);
+          callframe.add(argnames[i], arg); // add unevaluated
         }
       }
       var res = callframe.eval(rest[1]);
@@ -2371,6 +2398,8 @@ function Context(sup, js) {
   };
   
   this.add = function(name, value) {
+    var self = this;
+    
     if (typeof name != "string") {
       log("what is a "+name);
       throw "fuck";
@@ -2378,19 +2407,20 @@ function Context(sup, js) {
     if (reserved_identifiers.hasOwnProperty(name)) {
       throw ("Cannot define variable named '"+name+"': reserved identifier!");
     }
-    this.table[name] = value;
+    if (value) {
+      if (value.hasOwnProperty("set")) {
+        throw "internal issue: adding value that already has 'set' property (??)";
+      }
+      value.set = function(newval) {
+        newval = unbind_lv(newval);
+        newval.set = value.set; // propagate
+        self.table[name] = newval;
+      };
+    }
+    self.table[name] = value;
   };
   this.addRequire = function(context) {
     this.requires.push(context);
-  };
-  this.modify = function(name, value) {
-    if (typeof name != "string") throw "shit fuck";
-    if (typeof this.table[name] !== "undefined") {
-      this.table[name] = value;
-      return;
-    }
-    if (sup) sup.modify(name, value);
-    else fail(value, "'"+name+"' not found; cannot modify");
   };
   this.getNamehint = function() {
     if (this.namehint != "") return this.namehint;
@@ -2806,6 +2836,7 @@ function defun(context, name, arity, fun) {
   var obj = {
     kind: "function-poly",
     namehint: name,
+    internal: true,
     call: function(context, thing, args) {
       if (arity != null && args.length != arity)
         fail(thing, "expect "+arity+" arguments for '"+name+"'");
@@ -3156,11 +3187,18 @@ function setupSysctx() {
           base = {kind: "expr", type: type.base, value: base.value[3]};
         else fail(key, "undefined vector property '"+name+"'");
       } else if (base.kind == "struct") {
-        if (base.value.hasOwnProperty(name)) {
-          base = base.value[name];
-        } else {
+        if (!base.value.hasOwnProperty(name)) {
           fail(key, "undefined struct property '"+name+"' - "+sexpr_dump(thing));
         }
+        var nbase = unbind_lv(base.value[name]);
+        nbase.set = function(base) {
+          return function(newval) {
+            newval = unbind_lv(newval);
+            newval.set = nbase.set;
+            base.value[name] = newval; // this should work .. right??
+          };
+        }(base);
+        base = nbase;
       } else if (base.kind == "frame") {
         if (base.hasOwnProperty("base")) { // js mode
           var basevar = base.base;
@@ -3174,7 +3212,15 @@ function setupSysctx() {
           if (!base.entries.hasOwnProperty(name)) {
             fail(thing, "'"+name+"' not in stackframe ("+JSON.stringify(base)+")");
           }
-          base = base.entries[name].value;
+          var nbase = unbind_lv(base.entries[name].value);
+          nbase.set = function(base) {
+            return function(newval) {
+              newval = unbind_lv(newval);
+              newval.set = nbase.set;
+              base.entries[name].value = newval;
+            };
+          }(base);
+          base = nbase;
         }
       } else {
         fail(key || thing.value[i+1], "cannot access property '"+name+"' of something that "+
