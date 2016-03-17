@@ -7,12 +7,14 @@ $('#result_area > .nav-tabs a').click(function (e) {
 
 var editor_cfg = {
   lineNumbers: true,
-  mode: "scheme",
+  mode: "renderlisp",
   matchBrackets: true,
   autoCloseBrackets: true,
   indentUnit: 2,
   gutters: ["error-gutter"],
   viewportMargin: Infinity,
+  showCursorWhenSelecting: true,
+  lineWiseCopyCut: false, // why is this on by default??
   extraKeys: {
     'Ctrl-Enter': function(cm) {
       RenderOrCancel();
@@ -422,33 +424,45 @@ function RenderScene() {
     dw: dw, dh: dh, di: quality
   };
   
+  ctx.fillStyle = "rgba("+wipcolor.r+", "+wipcolor.g+", "+wipcolor.b+", 0.7)";
+  ctx.fillRect(0, 0, dw, dh);
+  
   workset.onTaskAdd = function(task) {
-    ctx.fillStyle = "rgba("+wipcolor.r+", "+wipcolor.g+", "+wipcolor.b+", 0.14)";
-    ctx.fillRect(task.x_from, task.y_from, task.x_to - task.x_from, task.y_to - task.y_from);
-    // work around strokeRect weirdness
-    // see http://www.mobtowers.com/html5-canvas-crisp-lines-every-time/
-    // ctx.strokeStyle = "rgba("+wipcolor.r+", "+wipcolor.g+", "+wipcolor.b+", 0.6)";
-    // ctx.strokeRect(task.x_from + 0.5, task.y_from + 0.5, task.x_to - task.x_from - 1, task.y_to - task.y_from - 1);
+    // ctx.fillStyle = "rgba("+wipcolor.r+", "+wipcolor.g+", "+wipcolor.b+", 0.14)";
+    // ctx.fillRect(task.x_from, task.y_from, task.x_to - task.x_from, task.y_to - task.y_from);
+    // // work around strokeRect weirdness
+    // // see http://www.mobtowers.com/html5-canvas-crisp-lines-every-time/
+    // // ctx.strokeStyle = "rgba("+wipcolor.r+", "+wipcolor.g+", "+wipcolor.b+", 0.6)";
+    // // ctx.strokeRect(task.x_from + 0.5, task.y_from + 0.5, task.x_to - task.x_from - 1, task.y_to - task.y_from - 1);
   };
   
   workset.onTaskStart = function(task) {
-    ctx.fillStyle = "rgb("+wipcolor.r+", "+wipcolor.g+", "+wipcolor.b+")";
-    ctx.fillRect(task.x_from, task.y_from, task.x_to - task.x_from, task.y_to - task.y_from);
+    // ctx.fillStyle = "rgb("+wipcolor.r+", "+wipcolor.g+", "+wipcolor.b+")";
+    // ctx.fillRect(task.x_from, task.y_from, task.x_to - task.x_from, task.y_to - task.y_from);
   };
+  
+  var ResultData = new Float32Array(dw*dh*4);
   
   workset.onTaskDone = function(task, wdata) {
     var
-      dw = task.x_to - task.x_from,
-      dh = task.y_to - task.y_from,
-      di = task.i_to - task.i_from;
-    var brush = get_brush(dw, dh);
+      tdw = task.x_to - task.x_from,
+      tdh = task.y_to - task.y_from,
+      tdi = task.i_to - task.i_from;
+    var brush = get_brush(tdw, tdh);
     var bdata = brush.data;
-    for (var y = 0; y < dh; ++y) {
-      for (var x = 0; x < dw; ++x) {
-        var base = y * dw + x;
-        bdata[base*4+0] = Math.floor(Math.max(0, Math.min(1, wdata[base*3+0] / di)) * 255.99);
-        bdata[base*4+1] = Math.floor(Math.max(0, Math.min(1, wdata[base*3+1] / di)) * 255.99);
-        bdata[base*4+2] = Math.floor(Math.max(0, Math.min(1, wdata[base*3+2] / di)) * 255.99);
+    for (var y = 0; y < tdh; ++y) {
+      for (var x = 0; x < tdw; ++x) {
+        var base = y * tdw + x;
+        var rbase = (y + task.y_from) * dw + (x + task.x_from);
+        var r = ResultData[rbase*4+0] + wdata[base*3+0]; ResultData[rbase*4+0] = r;
+        var g = ResultData[rbase*4+1] + wdata[base*3+1]; ResultData[rbase*4+1] = g;
+        var b = ResultData[rbase*4+2] + wdata[base*3+2]; ResultData[rbase*4+2] = b;
+        var i = ResultData[rbase*4+3] + tdi; ResultData[rbase*4+3] = i;
+        r /= i; g /= i; b /= i;
+        
+        bdata[base*4+0] = Math.floor(Math.max(0, Math.min(1, r)) * 255.99);
+        bdata[base*4+1] = Math.floor(Math.max(0, Math.min(1, g)) * 255.99);
+        bdata[base*4+2] = Math.floor(Math.max(0, Math.min(1, b)) * 255.99);
         bdata[base*4+3] = 255;
       }
     }

@@ -3,13 +3,14 @@
 importScripts('compile.js');
 importScripts('files.js');
 
+// not on the pool! don't spam! (TODO maybe when we're on our own connection?)
 function alert_(msg) {
-  postMessage({kind: "alert", message: msg});
+  // postMessage({kind: "alert", message: msg});
 }
 
 function log() {
   var msg = Array.prototype.slice.call(arguments).join(" ");
-  postMessage({kind: "log", message: msg});
+  // postMessage({kind: "log", message: msg});
 }
 
 var fncache = {

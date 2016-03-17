@@ -24,7 +24,7 @@ function splitSrc(src) {
           var loc1 = {row: rowbase, col: 0};
           var loc2 = {row: rowbase, col: filename_end};
           window.setErrorAt(loc1, loc2, "duplicate file name '"+filename+"'");
-          throw ("duplicate file name '"+filename+"'");
+          // throw ("duplicate file name '"+filename+"'");
         }
       }
       files.push({name: filename, src: src, rowbase: rowbase, clear: function(){}});

@@ -201,7 +201,7 @@ window.setErrorAt = function(loc1, loc2, text) {
     if (file.rowbase > loc1.row) break;
   }
   
-  if (i == 0) throw "internal messup";
+  if (i == 0) { return; } // throw "internal messup";
   
   var err_file = editor.files[i-1]; // "last" file in which the error could lie
   

@@ -410,11 +410,10 @@ function ServerConnection() {
           workerWrapper.onProgress(msg.progress);
         }
       } else if (msg.kind == "alert") {
-        if (!busy) { // otherwise just drop it, it's not that important, we get lots
-          busy = true; // THREAD SAFETY L O L
+        /*setTimeout(function() {
           alert(msg.message); // TODO only if self-connection
-          busy = false;
-        }
+        }, 0);*/
+        log(msg.message);
       } else if (msg.kind == "log") {
         log(msg.message); // TODO only if self-connection
       } else throw ("what is "+msg.kind);
@@ -1120,7 +1119,7 @@ function RenderWorkset(connection) {
     return this.estimators_con[id];
   };
   this.estimSubdivideTask = function(id, task) {
-    var msg = task.message;
+    var self = this, msg = task.message;
     var dw = this.task_defaults.dw, dh = this.task_defaults.dh;
     var task_pixels = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from);
     var task_samples = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from) * (msg.i_to - msg.i_from);
@@ -1128,6 +1127,32 @@ function RenderWorkset(connection) {
     var max_seconds_per_task = 10;
     var must_split = msg.x_to > dw || msg.y_to > dh; // invalid as-is
     if (!must_split && (estim_seconds_for_task <= max_seconds_per_task || task_pixels == 1)) return false;
+    
+    var pushed = 0;
+    var push = function(task) {
+      if (self.onTaskAdd) self.onTaskAdd(task.message);
+      task.array_id = self.tasks.length;
+      self.tasks.push(task);
+      pushed ++;
+    };
+    
+    var msg_i_size = msg.i_to - msg.i_from;
+    // don't split i too small to prevent single-pixel task spam
+    if (msg_i_size > /* 1 */ 8) {
+      // split on i preferentially
+      var bot = task, top = task.sclone();
+      
+      var isplit = msg.i_from + Math.ceil((msg.i_to - msg.i_from) / 2);
+      
+      bot.message.i_to = isplit;
+      top.message.i_from = isplit;
+      
+      push(top);
+      
+      // this.shuffle(1);
+      return true;
+    }
+    
     // log("subdivide task: targeting", max_seconds_per_task, ", estimated", estim_seconds_for_task, "for", task_pixels);
     // subdivide into four quadrants
     var tl = task, tr = task.sclone(), bl = task.sclone(), br = task.sclone();
@@ -1148,26 +1173,16 @@ function RenderWorkset(connection) {
       return msg.x_from < dw && msg.y_from < dh;
     };
     
-    var pushed = 0;
     if (x_didsplit && task_touches_area(tr)) {
-      if (this.onTaskAdd) this.onTaskAdd(tr.message);
-      tr.array_id = this.tasks.length;
-      this.tasks.push(tr);
-      pushed ++;
+      push(tr);
     }
     if (x_didsplit && y_didsplit && task_touches_area(br)) {
-      if (this.onTaskAdd) this.onTaskAdd(br.message);
-      br.array_id = this.tasks.length;
-      this.tasks.push(br);
-      pushed ++;
+      push(br);
     }
     if (y_didsplit && task_touches_area(bl)) {
-      if (this.onTaskAdd) this.onTaskAdd(bl.message);
-      bl.array_id = this.tasks.length;
-      this.tasks.push(bl);
-      pushed ++;
+      push(bl);
     }
-    this.shuffle(pushed);
+    // this.shuffle(pushed);
     return true;
   };
   this.getQueuedTask = function(id) {
