@@ -909,6 +909,17 @@ function sexpr_parse(context, parser, indentchecker) {
   var ident = parser.gotIdentifier();
   if (ident !== false) {
     text_post = parser.text;
+    // syntax shortcut: a:b is (: a b)  (property access is very, very common)
+    if (ident.indexOf(":") != -1 && ident != ":") {
+      var parts = ident.split(":");
+      var atoms = [];
+      atoms.push({kind: "atom", value: ":", fail: failHere});
+      for (var i = 0; i < parts.length; ++i) {
+        // TODO more specific fail function
+        atoms.push({kind: "atom", value: parts[i], fail: failHere});
+      }
+      return makething({kind: "list", value: atoms});
+    }
     return makething({kind: "atom", value: ident});
   }
   parser.fail("unexpected input");
