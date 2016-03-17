@@ -101,6 +101,7 @@ function isFloat(arg) {
   {
     return true;
   }
+  if (arg != arg) return true; // special: NaN
   return false;
 }
 
@@ -272,7 +273,9 @@ function js_get_at(type, base, offs) {
     for (var i = 0; i < type.size; ++i) {
       parts.push(js_get_at(type.base, base, offs + elemsize * i));
     }
-    return mkVec_direct(type, parts);
+    var res = mkVec_direct(type, parts);
+    res.base = base;
+    return res;
   }
   if (typeof type == "object") {
     if (type.kind == "struct") {
@@ -282,10 +285,11 @@ function js_get_at(type, base, offs) {
         var moffset = type.offsets[key];
         value[key] = js_get_at(mtype, base, offs + moffset);
       }
+      var offbase = {kind: "expr", type: "int", value: js_op(null, "+", js_tag(base), offs)};
       return {
         kind: "struct",
         type: type,
-        base: base,
+        base: offbase,
         value: value
       };
     }
@@ -429,6 +433,11 @@ function flatten(base, thing) {
 }
 
 function flatten_type(type) {
+  // types provided in-repl
+  if (typeof type == "object" && type.hasOwnProperty('kind') && type.kind == "atom") {
+    type = type.value;
+  }
+  
   if (type == "float" || type == "int" || type == "bool") return [type];
   if (type.kind == "vector") {
     var types = [];
@@ -477,6 +486,13 @@ function get_type_signature(thing) {
   }
   if (thing.kind == "function-poly") {
     return unique_id_for(thing, "function_poly"); // each poly-function is "unique"
+  }
+  if (thing.kind == "closure") {
+    var parts = [];
+    for (var i = 0; i < thing.args.length; ++i) {
+      parts.push(get_type_signature(thing.args[i]));
+    }
+    return "closure_ret_"+get_type_signature(thing.ret)+"_args_"+parts.join("_")+"_";
   }
   if (thing.kind == "closure-pointer") {
     return "closure_pointer_"+get_type_signature(thing.base.base)+"_"+get_type_signature(thing.fnptr.offset)+"_";
@@ -537,6 +553,11 @@ function reconstruct_by_types(js, types, vars) {
   var array = [];
   for (var i = 0; i < types.length; ++i) {
     var type = types[i];
+    // type provided in-repl
+    if (typeof type == "object" && type.hasOwnProperty('kind') && type.kind == "atom") {
+      type = type.value;
+    }
+    
     if (type == "int" || type == "float" || type == "bool") {
       array.push(take(1)[0]);
       continue;
@@ -1250,7 +1271,7 @@ function match_let1(thing, as_alias) {
             kind: "list",
             fail: this.thing.value[1].fail,
             value: [
-              {kind: "atom", value: this.name},
+              {kind: "atom", value: this.name, fail: this.bind.value[0].fail},
               nvalue
             ]
           },
@@ -1335,7 +1356,7 @@ function sexpr_dump(thing) {
     thing.fail("what is even "+thing.kind);
   }*/
   else if (thing.kind == "expr") {
-    return "&lt;"+thing.type+" "+thing.value+"&gt;";
+    return "<"+thing.type+" "+thing.value+">";
   }
   else if (typeof thing == "function") {
     return "<function>";
@@ -1357,6 +1378,7 @@ function mkVec_direct(type, array) {
       throw ("vector must be made of '"+type.base+"', not '"+array[i].type+"'");
     }
     values[i] = array[i].value;
+    if (values[i] == null) throw "what what what";
   }
   return {kind: "vector", type: type, value: values};
 }
@@ -1547,6 +1569,58 @@ function set_internal(context, thing, rest) {
   
   // return value;
   return null;
+
+function generic_return(js, thing) {
+  if (thing == null) {
+    js.addLine("SP = BP;");
+    js.addLine("return");
+    return "void";
+  }
+  else if (thing.kind == "vector") {
+    var rplaces = ["_rvec_x", "_rvec_y", "_rvec_z", "_rvec_w"];
+    if (thing.type.size > 4 || thing.type.base != "float") {
+      fail(thing, "todo return vector of size > 4 or type != float");
+    }
+    for (var i = 0; i < thing.type.size; ++i) {
+      js.set(thing.type.base, rplaces[i], thing.value[i]);
+    }
+    
+    js.addLine("SP = BP;");
+    js.addLine("return");
+    return thing.type;
+  }
+  else if (thing.kind == "expr" && (thing.type == "float" || thing.type == "bool" || thing.type == "int")) {
+    js.addLine("SP = BP;");
+    js.addLine("return "+js_tag(thing)+";");
+    return thing.type;
+  }
+  else if (thing.kind == "struct") {
+    fail(thing, "It is not a good thing to try and return a struct by value!");
+    // js.addLine("SP = BP;");
+    // js.addLine("return "+js_tag(thing.base)+";");
+    // return thing.type;
+  }
+  else if (thing.kind == "pointer") {
+    js.addLine("SP = BP;");
+    js.addLine("return "+js_tag(thing.base)+";");
+    return {kind: "pointer", type: thing.type};
+  }
+  else if (thing.kind == "closure-poly") {
+    js.set("int", "_cp_base", thing.base.base.value);
+    js.addLine("SP = BP;");
+    js.addLine("return");
+    return thing;
+  }
+  else if (thing.kind == "closure-pointer") {
+    js.set("int", "_cp_base", thing.base.base.value);
+    js.set("int", "_cp_offset", thing.fnptr.offset.value);
+    js.addLine("SP = BP;");
+    js.addLine("return");
+    return thing.type;
+  }
+  else {
+    fail(null, "4 how return "+JSON.stringify(thing));
+  }
 }
 
 function build_js_call(thing, js, fname, ret_type, flat_args) {
@@ -1621,7 +1695,7 @@ function lambda_internal(context, thing, rest) {
   var numcalled = 0;
   var inlined_fn = null;
   
-  var lambda_thing = {kind: "function-poly", arity: argnames.length};
+  var lambda_thing = {kind: "function-poly", internal: false, arity: argnames.length};
   
   if (thing.hasOwnProperty("fail")) lambda_thing.fail = thing.fail;
   
@@ -1632,11 +1706,11 @@ function lambda_internal(context, thing, rest) {
     
     callframe.namehint = namehint+"_call";
     
+    // callframe.add("self", lambda_thing);
     for (var i = 0; i < args.length; ++i) {
       var arg = args[i];
       // log("debug call:", argnames[i], "=", sexpr_dump(arg));
       callframe.add(argnames[i], arg);
-      callframe.add("self", lambda_thing);
     }
     
     var res = callframe.eval(body);
@@ -1670,7 +1744,7 @@ function lambda_internal(context, thing, rest) {
         var argtype = js_type(args[i]);
         if (decltype.kind == "atom") decltype = decltype.value;
         if (JSON.stringify(decltype) != JSON.stringify(argtype)) {
-          fail(callthing, "wrong type: function typed as expecting "+JSON.stringify(decltype)+" but called with "+JSON.stringify(argtype)+"!");
+          fail(callthing.value[i+1], "wrong type: function typed as expecting "+JSON.stringify(decltype)+" but called with "+JSON.stringify(argtype)+"!");
         }
       }
     }
@@ -1754,50 +1828,7 @@ function lambda_internal(context, thing, rest) {
       
       compiling_depth --;
       
-      if (res == null) {
-        ret_type = "void";
-        js.addLine("SP = BP;");
-        js.addLine("return");
-      }
-      else if (res.kind == "vector") {
-        ret_type = res.type;
-        var rplaces = ["_rvec_x", "_rvec_y", "_rvec_z", "_rvec_w"];
-        if (res.type.size > 4 || res.type.base != "float") {
-          fail(thing, "todo return vector of size > 4 or type != float");
-        }
-        for (var i = 0; i < res.type.size; ++i) {
-          js.set(res.type.base, rplaces[i], res.value[i]);
-        }
-        
-        js.addLine("SP = BP;");
-        js.addLine("return");
-      }
-      else if (res.kind == "expr" && (res.type == "float" || res.type == "bool" || res.type == "int")) {
-        ret_type = res.type;
-        js.addLine("SP = BP;");
-        js.addLine("return "+js_tag(res)+";");
-      }
-      else if (res.kind == "struct") {
-        ret_type = res.type;
-        js.addLine("SP = BP;");
-        js.addLine("return "+js_tag(res.base)+";");
-      }
-      else if (res.kind == "closure-poly") {
-        ret_type = res;
-        js.set("int", "_cp_base", res.base.base.value);
-        js.addLine("SP = BP;");
-        js.addLine("return");
-      }
-      else if (res.kind == "closure-pointer") {
-        ret_type = res.type;
-        js.set("int", "_cp_base", res.base.base.value);
-        js.set("int", "_cp_offset", res.fnptr.offset.value);
-        js.addLine("SP = BP;");
-        js.addLine("return");
-      }
-      else {
-        callthing.fail("3 how return "+JSON.stringify(res));
-      }
+      ret_type = generic_return(js, res);
       
       if (early_type && JSON.stringify(early_type) != JSON.stringify(ret_type)) {
         fail(thing, "function return type does not match declared return type: "+JSON.stringify(early_type)+" and "+JSON.stringify(ret_type));
@@ -1814,7 +1845,7 @@ function lambda_internal(context, thing, rest) {
       js.add("functions", fun);
       
       // log("late cache "+fn+": "+signature+": "+ret_type);
-      lambda_cache[signature] = {fn: fn, ret_type: ret_type};
+      lambda_cache[signature] = {namehint: namehint, fn: fn, ret_type: ret_type};
     }
     
     if (flat_args.length != partypes.length) callthing.fail("internal logic error");
@@ -1872,43 +1903,7 @@ function lambda_internal(context, thing, rest) {
     
     var res = callframe.eval(body);
     
-    var ret_type = null;
-    
-    if (res == null) {
-      js.addLine("SP = BP;");
-      js.addLine("return");
-      ret_type = "void";
-    }
-    else if (res.kind == "vector") {
-      ret_type = res.type;
-      
-      if (res.type.size > 4 || res.type.base != "float") {
-        fail(thing, "todo return vector of size > 4 or type != float");
-      }
-      
-      var names = ["_rvec_x", "_rvec_y", "_rvec_z", "_rvec_w"];
-      for (var i = 0; i < ret_type.size; ++i) {
-        js.set(res.type.base, names[i], res.value[i]);
-      }
-      
-      js.addLine("SP = BP;");
-      js.addLine("return");
-    }
-    else if (res.kind == "expr" && (res.type == "float" || res.type == "bool" || res.type == "int")) {
-      js.addLine("SP = BP;");
-      js.addLine("return "+js_tag(res)+";");
-      ret_type = res.type;
-    }
-    else if (res.kind == "closure-pointer") {
-      ret_type = res.type;
-      js.set("int", "_cp_base", res.base.base.value);
-      js.set("int", "_cp_offset", res.fnptr.offset.value);
-      js.addLine("SP = BP;");
-      js.addLine("return");
-    }
-    else {
-      fail(thing, "1 how return "+JSON.stringify(res));
-    }
+    var ret_type = generic_return(js, res);
     
     if (JSON.stringify(ret_type) != JSON.stringify(type.ret)) {
       fail(thing, "declared return type does not match actual return type - "+JSON.stringify(ret_type)+" != "+JSON.stringify(type.ret));
@@ -2182,8 +2177,11 @@ function match_makestruct(thing, location) {
     if (pair.value.length != 2) fail(pair, "expected name-value pair for make-struct; this is not a pair");
     if (pair.value[0].kind != "atom") fail(pair, "expected name-value pair for make-struct; this is not a name");
     
-    names_arr.push(pair.value[0].value);
-    values_arr.push(pair.value[1]);
+    var name = pair.value[0].value;
+    var value = pair.value[1];
+    
+    names_arr.push(name);
+    values_arr.push(value);
   }
   return {
     names: names_arr,
@@ -2575,7 +2573,7 @@ function FnTable() {
       }
       
       var mask = list.length - 1;
-      js.addLine("var "+name+" = ["+list.join(", ")+"];");
+      js.addLine("tables", "var "+name+" = ["+list.join(", ")+"];");
       js.replace(maskid, ""+mask);
     }
   };
@@ -2708,22 +2706,18 @@ function JsFile() {
     if (location == null) location = "variables";
     
     var name = this.allocName("v", hint);
-    // JavaScript
-    var initializer = js_tag_init(type, value);
-    if (initializer != null) {
-      this.addLine(location, "var "+name+" = "+initializer+";");
-    } else {
-      var sample = null;
-      if (type == "float") sample = tagf_init("0");
-      else if (type == "double") sample = "0.0";
-      else if (type == "int") sample = "0";
-      else if (type == "bool") sample = "0";
-      else throw ("how init "+type+"?");
-      
-      this.addLine(location, "var "+name+" = "+sample+";");
-      if (value != null) {
-        this.set(type, name, value);
-      }
+    
+    var sample = null;
+    if (type == "float") sample = tagf_init("0");
+    else if (type == "double") sample = "0.0";
+    else if (type == "int") sample = "0";
+    else if (type == "bool") sample = "0";
+    else throw ("how init "+type+"?");
+    
+    this.addLine(location, "var "+name+" = "+sample+";");
+    
+    if (value != null) {
+      this.set(type, name, value);
     }
     // C
     /*if (init == "null") {
@@ -2875,6 +2869,9 @@ function setupSysctx() {
       if (value == null) return "'null'";
       if (value.kind == "vector") {
         var parts = [];
+        if (value.hasOwnProperty('base')) {
+          parts.push("'@'+("+js_tag(value.base)+")");
+        }
         for (var i = 0; i < value.type.size; ++i) {
           parts.push("("+fmt({kind: "expr", type: value.type.base, value: value.value[i]})+")");
         }
@@ -2904,10 +2901,10 @@ function setupSysctx() {
         return "'{'+"+list.join("+', '+")+"+'}'";
       }
       if (value.kind == "closure-poly") {
-        return "'&lt;closure(poly) to "+value.fn.namehint+", base at '+"+fmt(value.base.base)+"+'&gt;'";
+        return "'<closure(poly) to "+value.fn.namehint+", base at '+"+fmt(value.base.base)+"+'>'";
       }
       if (value.kind == "closure-pointer") {
-        return "'&lt;closure of "+get_type_signature(value)+", fn at '+"+fmt(value.fnptr.offset)+"+', base at '+"+fmt(value.base.base)+"+'&gt;'";
+        return "'<closure of "+get_type_signature(value)+", fn at '+"+fmt(value.fnptr.offset)+"+', base at '+"+fmt(value.base.base)+"+'>'";
       }
       if (value.kind == "quote") {
         return "\"'\"+"+fmt(value.value);
@@ -3173,20 +3170,16 @@ function setupSysctx() {
           "is not a struct or vector, but a "+base.kind+" "+sexpr_dump(base));
       }
     }
-    if (!context.js) {
-      // log("what do with : result "+typeof(base)+" "+JSON.stringify(base)+" for "+sexpr_dump({kind: "list", value: array}));
-      if (typeof base == "object") {
-        if (base.type == "float" && base.is_number()) {
-          return {kind: "expr", type: "float", value: base.value};
-        }
-      }
-    }
     return base;
   });
   defun(sysctx, "list", function(context, thing, array) {
-    return {kind: "list", fail: thing.fail, value: array};
+    var fail = null;
+    if (array.length && array[0].hasOwnProperty('fail')) fail = fail || array[0].fail;
+    fail = fail || thing.fail;
+    return {kind: "list", fail: fail, value: array};
   });
   defun(sysctx, "sqrt", 1, function(context, thing, value) {
+    if (lit_float(value)) return {kind: "expr", type: "float", value: Math.sqrt(value.value)};
     if (value.kind == "expr" && value.type == "float") {
       return context.js.mkVar("+sqrt("+coerce_double(value)+")", "float", "sqrt");
     }
@@ -3218,12 +3211,21 @@ function setupSysctx() {
     thing.fail("unimplemented: sin "+JSON.stringify(value));
   });
   defun(sysctx, "cos", 1, function(context, thing, value) {
+    if (lit_float(value)) return {kind: "expr", type: "float", value: Math.cos(value.value)};
     if (value.kind == "expr" && value.type == "float") {
       return context.js.mkVar("+cos("+coerce_double(value)+")", "float", "cos");
     }
     thing.fail("unimplemented: cos "+JSON.stringify(value));
   });
+  defun(sysctx, "acos", 1, function(context, thing, value) {
+    if (lit_float(value)) return {kind: "expr", type: "float", value: Math.acos(value.value)};
+    if (value.kind == "expr" && value.type == "float") {
+      return context.js.mkVar("+acos("+coerce_double(value)+")", "float", "acos");
+    }
+    thing.fail("unimplemented: acos "+JSON.stringify(value));
+  });
   defun(sysctx, "tan", 1, function(context, thing, value) {
+    if (lit_float(value)) return {kind: "expr", type: "float", value: Math.tan(value.value)};
     if (value.kind == "expr" && value.type == "float") {
       return context.js.mkVar("+tan("+coerce_double(value)+")", "float", "tan");
     }
@@ -3364,6 +3366,9 @@ function setupSysctx() {
       if (allNumbers) {
         if (!anyVecs) return { kind: "expr", type: allInts?"int":"float", value: res };
         else {
+          for (var k = 0; k < res.length; ++k) {
+            if (res[k] == null) throw "what what what";
+          }
           return { kind: "vector", type: {kind: "vector", base: "float", size: res.length}, value: res };
         }
       }
@@ -3397,6 +3402,9 @@ function setupSysctx() {
           } else {
             thing.fail("unimplemented: vop "+JSON.stringify(oper));
           }
+        }
+        for (var k = 0; k < rv.length; ++k) {
+          if (rv[k] == null) throw "what what what";
         }
         res = {kind: "vector", type: {kind: "vector", base: "float", size: rv.length}, value: rv};
       } else {
@@ -3578,6 +3586,7 @@ function compile(files) {
   jsfile.addLine("var pow = stdlib.Math.pow;");
   jsfile.addLine("var sin = stdlib.Math.sin;");
   jsfile.addLine("var cos = stdlib.Math.cos;");
+  jsfile.addLine("var acos = stdlib.Math.acos;");
   jsfile.addLine("var tan = stdlib.Math.tan;");
   jsfile.addLine("var imul = stdlib.Math.imul;");
   jsfile.addLine("var atan2 = stdlib.Math.atan2;");
@@ -3854,6 +3863,8 @@ function compile(files) {
   jsfile.closeSection("body");
   jsfile.closeSection("variables");
   jsfile.closeSection("function");
+  
+  jsfile.openSection("tables");
   
   jsfile.emitFunctionTables();
   
