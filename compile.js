@@ -244,49 +244,6 @@ function js_unify_vars(left, right) {
   return {left: left, right: right};
 }
 
-function js_set_at(context, type, base, offs, value) {
-  var target = js_get_at(type, base, offs);
-  var js = context.js;
-  
-  var vt = js_type(value);
-  if (JSON.stringify(vt) != JSON.stringify(type)) {
-    throw ("types not equal in js_set_at - "+JSON.stringify(type)+" vs. "+JSON.stringify(vt));
-  }
-  
-  if (typeof type == "object") {
-    if (type.kind == "vector") {
-      for (var i = 0; i < type.size; ++i) {
-        js.set(type.base, target.value[i], value.value[i]);
-      }
-      return;
-    }
-    if (type.kind == "frame") {
-      js.set("int", target.base.value, value.base.value);
-      return;
-    }
-    if (type.kind == "closure-poly") {
-      js.set("int", target.base.base.value, value.base.base.value);
-      return;
-    }
-    if (type.kind == "closure") {
-      js.set("int", target.base.base.value, value.base.base.value);
-      js.set("int", target.fnptr.offset.value, value.fnptr.offset.value);
-      return;
-    }
-    if (type.kind == "struct") {
-      for (var key in target.value) if (target.value.hasOwnProperty(key)) {
-        var type = target.type.types[key];
-        var offset = target.type.offsets[key];
-        js_set_at(context, type, base, offs + offset,
-          js_get_at(type, base, offs + offset));
-      }
-      return;
-    }
-  }
-  
-  js.set(type, target.value, js_tag(value));
-}
-
 /** @constructor */
 function ClosurePointer(type, base, offset) {
   var sign = flatten_type_array(["int"].concat(type.args)).signature;
@@ -3066,7 +3023,9 @@ function setupSysctx() {
     var size = js_size(value);
     var offset = frame.offset.value;
     
-    js_set_at(context, type, frame.base, offset, value);
+    // log("debug: set at", offset, size, "to", sexpr_dump(value));
+    var target = js_get_at(type, frame.base, offset);
+    js_set(context.js, thing, target, value);
     
     frame.entries[name] = {type: type, offset: offset};
     frame.offset.value += size;
