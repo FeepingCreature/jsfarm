@@ -962,7 +962,9 @@ function match_op(thing, ident) {
 }
 
 function match_lambda(thing) {
-  if (!match_op(thing, "lambda")) return null;
+  var scope = "heap";
+  if (match_op(thing, "local-lambda")) scope = "stack";
+  else if (!match_op(thing, "lambda")) return null;
   var args = thing.value.slice(1);
   
   if (args.length != 2) fail(thing, "'lambda' expected 2 args");
@@ -981,9 +983,10 @@ function match_lambda(thing) {
     argnames: argnames,
     body: body,
     thing: thing,
+    scope: scope,
     rewriteWith: function(nbody) {
       var list = [];
-      list.push({kind: "atom", value: "lambda"});
+      list.push({kind: "atom", value: (this.scope == "stack")?"local-lambda":"lambda"});
       list.push(this.arglist);
       list.push(nbody);
       return {
@@ -1049,6 +1052,7 @@ function convert_closures(context, thing) {
     // log("==CONVERT_LAMBDA==");
     // log("== "+sexpr_dump(lambda.thing));
     var vars = [];
+    var vars_scope = "stack";
     for (var i = 0; i < lambda.argnames.length; ++i) {
       var name = lambda.argnames[i];
       vars.push({
@@ -1176,9 +1180,10 @@ function convert_closures(context, thing) {
           nbody = var_wrap(nbody, varentry, name);
         }
       }
+      var frame_fun = (vars_scope == "stack")?"%make-frame-stack":"%make-frame";
       return lambda.rewriteWith(
         list("let1",
-          list("%stackframe", list("%make-frame")),
+          list("%stackframe", list(frame_fun)),
           nbody
         )
       );
@@ -1206,36 +1211,43 @@ function convert_closures(context, thing) {
             }
             vars.push(varinfo);
           }
-          rec(let1_props.body, in_nested, function(n, track) {
+          rec(let1_props.body, in_nested, function(n, track, scope) {
             if (varinfo && n == let1_props.name) {
-              if (track) varinfo.accessed_from_sub = true;
+              if (track) {
+                varinfo.accessed_from_sub = true;
+                // at least one access from a heap-allocated lambda
+                if (scope == "heap") vars_scope = "heap";
+              }
               varinfo.num_accesses ++;
               return null;
             }
-            return lookup(n, track);
+            return lookup(n, track, scope);
           });
           return;
         }
         
         var lambda_props = match_lambda(thing);
         if (lambda_props) {
-          rec(lambda_props.body, true, function(n, track) {
+          rec(lambda_props.body, true, function(n, track, scope) {
             for (var i = 0; i < lambda_props.argnames.length; i++) {
               if (lambda_props.argnames[i] == n) return null; // mask
             }
             // access over lambda border, activate tracking
-            return lookup(n, true);
+            return lookup(n, true, lambda_props.scope);
           });
           return;
         }
         
         base_recurse(thing, function(thing) { rec(thing, in_nested, lookup); return thing; });
       };
-      rec(lambda.body, false, function(n, track) {
+      rec(lambda.body, false, function(n, track, scope) {
         for (var i = 0; i < lambda.argnames.length; ++i) {
           var name = lambda.argnames[i];
           if (name == n) {
-            if (track) vars[i].accessed_from_sub = true;
+            if (track) {
+              vars[i].accessed_from_sub = true;
+              if (scope == "heap") vars_scope = "heap";
+            }
             return null;
           }
         }
@@ -2439,7 +2451,7 @@ function eval_builtin(context, thing) {
   if (name == "def") return def_internal(context, thing, rest);
   if (name == "set") return set_internal(context, thing, rest);
   
-  if (name == "lambda") return lambda_internal(context, thing, rest);
+  if (name == "lambda" || name == "local-lambda") return lambda_internal(context, thing, rest);
   if (name == "macro" ) return macro_internal (context, thing, rest);
   
   if (name == "if")    return if_internal   (context, thing, rest);
@@ -3144,6 +3156,26 @@ function setupSysctx() {
     for (var i = 0; i < b.value.length; ++i)
       nlist.push(b.value[i]);
     return {kind: "list", fail: a.fail || b.fail || thing.fail, value: nlist};
+  });
+  
+  defun(sysctx, "%make-frame-stack", 0, function(context, thing) {
+    var js = context.js;
+    if (!js) {
+      return {kind: "frame", entries: {}};
+    }
+    js.set("int", "SP", js_op("int", "-", "SP", "__FRAME_SIZE__"));
+    var base = js.mkVar("SP", "int", "frame_base");
+    var frame_obj = {
+      kind: "frame",
+      base: base,
+      offset: {value: 0}, // by-reference, keep when copied
+      entries: {}
+    };
+    js.onSectionFinalize("body", function(text) {
+      // log("frame size fix to "+frame_obj.offset.value);
+      return text.replace("__FRAME_SIZE__", frame_obj.offset.value);
+    });
+    return frame_obj;
   });
   
   defun(sysctx, "%make-frame", 0, function(context, thing) {
