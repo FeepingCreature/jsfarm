@@ -1,5 +1,7 @@
 'use strict';
 
+var STACK_DEBUG = false;
+
 Error.stackTraceLimit=undefined;
 /** @Constructor */
 function RequireLoopError(msg) {
@@ -1651,6 +1653,7 @@ function set_internal(context, thing, rest) {
 function generic_return(js, thing) {
   if (thing == null) {
     js.addLine("SP = BP;");
+    if (STACK_DEBUG) js.addLine("check_end();");
     js.addLine("return");
     return "void";
   }
@@ -1664,11 +1667,13 @@ function generic_return(js, thing) {
     }
     
     js.addLine("SP = BP;");
+    if (STACK_DEBUG) js.addLine("check_end();");
     js.addLine("return");
     return thing.type;
   }
   else if (thing.kind == "expr" && (thing.type == "float" || thing.type == "bool" || thing.type == "int")) {
     js.addLine("SP = BP;");
+    if (STACK_DEBUG) js.addLine("check_end();");
     js.addLine("return "+js_tag(thing)+";");
     return thing.type;
   }
@@ -1680,12 +1685,14 @@ function generic_return(js, thing) {
   }
   else if (thing.kind == "pointer") {
     js.addLine("SP = BP;");
+    if (STACK_DEBUG) js.addLine("check_end();");
     js.addLine("return "+js_tag(thing.base)+";");
     return {kind: "pointer", type: thing.type};
   }
   else if (thing.kind == "closure-poly") {
     js.set("int", "_cp_base", thing.base.base.value);
     js.addLine("SP = BP;");
+    if (STACK_DEBUG) js.addLine("check_end();");
     js.addLine("return");
     return thing;
   }
@@ -1693,6 +1700,7 @@ function generic_return(js, thing) {
     js.set("int", "_cp_base", thing.base.base.value);
     js.set("int", "_cp_offset", thing.fnptr.offset.value);
     js.addLine("SP = BP;");
+    if (STACK_DEBUG) js.addLine("check_end();");
     js.addLine("return");
     return thing.type;
   }
@@ -1864,6 +1872,7 @@ function lambda_internal(context, thing, rest) {
       js.addLine("// signature: "+signature);
       js.addLine("function "+fn+"("+parnames.join(", ")+") {");
       js.indent();
+      if (STACK_DEBUG) js.addLine("check_start();");
       
       // declare argument types for asm.js
       for (var i = 0; i < partypes.length; ++i) {
@@ -1954,6 +1963,7 @@ function lambda_internal(context, thing, rest) {
     js.openSection("function", "functions");
     js.addLine("function "+fn+"("+parnames.join(", ")+") {");
     js.indent();
+    if (STACK_DEBUG) js.addLine("check_start();");
     
     // declare argument types for asm.js
     for (var i = 0; i < partypes.length; ++i) {
@@ -3800,6 +3810,17 @@ function compile(files) {
   // backup
   jsfile.addLine("var stackborder = foreign.stackborder|0;")
   
+  jsfile.addLine("var stackdepth = 0;");
+  if (STACK_DEBUG) {
+    jsfile.addLine("var check_start = function() {"
+      +"if (stackdepth > 100) debugger;"
+      +"stackdepth ++;"
+    +"};");
+    jsfile.addLine("var check_end = function() {"
+      +"stackdepth --;"
+    +"};");
+  }
+  
   jsfile.openSection("functions");
   
   jsfile.addLine("function malloc(size) {");
@@ -3816,6 +3837,19 @@ function compile(files) {
   jsfile.unindent();
   jsfile.addLine("}");
   jsfile.addLine("return res|0;");
+  jsfile.unindent();
+  jsfile.addLine("}");
+  
+  jsfile.addLine("function nancheck(f) {");
+  jsfile.indent();
+  jsfile.addLine("f = +f;");
+  jsfile.addLine("");
+  jsfile.addLine("if ((+f) != (+f)) {");
+  jsfile.indent();
+  jsfile.addLine("error(2);");
+  jsfile.unindent();
+  jsfile.addLine("}");
+  jsfile.addLine("return +f;");
   jsfile.unindent();
   jsfile.addLine("}");
   
