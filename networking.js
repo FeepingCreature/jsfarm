@@ -70,27 +70,16 @@ function RobinQueue(limit) {
   this.limit = limit;
   this.tasks = [];
   this.getTimeSinceLastAssigned = function(task) {
-    if (task.prioritize) return 1/0; // always give priority
+    if (task.prioritize) return Infinity; // always give priority
     if (task.origin in this.last_assigned) {
-      return time() - this.last_assigned;
+      return time() - this.last_assigned[task.origin];
     }
     return 0;
   };
-  this.ensureTaskHysteresis = function(task, grace) {
-    if (task.prioritize) return; // has priority anyways
-    this.last_assigned[task.origin] = time();
-    for (var key in this.last_assigned) if (key != task.origin) {
-      // punt all others into the future; attempt to guarantee
-      // that we'll get at least [grace] of continuous runtime
-      // (reduces kickchurn hopefully)
-      task.origin[key] += grace;
-    }
-  }
   this.popTask = function() {
     if (!this.tasks.length) return null;
     var task = this.tasks.shift(); // fifo
-    // TODO do something better than this
-    // this.ensureTaskHysteresis(task, 10*1000); // only do so now that we're actually starting to compute it!
+    this.last_assigned[task.origin] = time();
     return task;
   };
   this.addTaskMaybe = function(task) {
@@ -122,7 +111,9 @@ function RobinQueue(limit) {
     }
     this.tasks.push(task);
     
-    if (evict_task) evict_task.evict();
+    if (evict_task) {
+      evict_task.evict();
+    }
     
     return true;
   };
@@ -281,6 +272,9 @@ function ServerConnection() {
       wrapper.onError = function(error, nature) {
         con.send({kind: 'error', nature: nature, error: error, channel: msg.channel});
         delete wrapper.onError;
+        
+        // we may have restarted a worker! can we give it work?
+        self.checkQueue();
       };
       
       var message = $.extend({}, task.default_obj, msg.message);
@@ -362,11 +356,16 @@ function ServerConnection() {
       onTimeout: function() {
         // clean up
         this.worker.terminate();
+        // and restart
+        self._startWorker(marker, index);
+        // CAUTION timing-related danger point!
+        // callback _after_ restarting, so the callback can immediately give the
+        // newly restarted worker stuff to do.
+        // (otherwise, it's possible to get a hang where all workers are restarted
+        //  but there's no impetus to actually give them work)
         if (this.hasOwnProperty('onError')) {
           this.onError("Timeout: computation exceeded 30s", 'timeout');
         }
-        // and restart
-        self._startWorker(marker, index);
       },
       setState: function(state) {
         if (state == 'busy') {
