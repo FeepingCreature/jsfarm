@@ -254,8 +254,10 @@ function ServerConnection() {
       var con = task.con;
       
       wrapper.onComplete = function(data) {
+        var rgbe_data = encode_rgbe11(data);
+        
         con.send({kind: 'done', channel: msg.channel});
-        con.send({kind: 'result', channel: msg.channel, data: data.buffer});
+        con.send({kind: 'result', channel: msg.channel, data: rgbe_data.buffer});
         delete wrapper.onComplete;
         
         var pixels = data.buffer.byteLength / 12;
@@ -839,7 +841,7 @@ function RenderWorkset(connection) {
               var data = null;
               var reactTaskResultReceived = function(msg) {
                 if (msg.kind == 'result') {
-                  data = new Float32Array(msg.data);
+                  data = decode_rgbe11(new Uint8Array(msg.data));
                   // log_id(id, "task", channel, "received data", data.length);
                   advance();
                   return true;
