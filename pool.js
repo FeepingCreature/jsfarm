@@ -13,11 +13,18 @@ function log() {
   // postMessage({kind: "log", message: msg});
 }
 
-var fncache = {
-  source: null,
-  settings: {},
-  fn: null
-};
+/** @constructor */
+function FnCache() {
+  this.source = null;
+  this.settings = {};
+  this.fn = null;
+  this.matches = function(settings, source) {
+    return JSON.stringify(this.settings) == JSON.stringify(settings) && this.source == source;
+  };
+}
+
+var fncache = [new FnCache, new FnCache, new FnCache, new FnCache, new FnCache, new FnCache, new FnCache, new FnCache];
+var fncache_id = 0;
 
 function is_pot(i) {
   return (i & (i - 1)) == 0;
@@ -52,7 +59,15 @@ onmessage = function(e) {
     
     var settings = {dw: dw, dh: dh, di: di};
     
-    if (JSON.stringify(settings) != JSON.stringify(fncache.settings) || s2src != fncache.source) {
+    var cache_entry = null;
+    for (var i = 0; i < fncache.length; ++i) {
+      if (fncache[i].matches(settings, s2src)) {
+        cache_entry = fncache[i];
+        break;
+      }
+    }
+    
+    if (!cache_entry) {
       var files = splitSrc(s2src);
       var jssrc = compile(files);
       var asmjs = new Function('stdlib', 'foreign', 'heap', jssrc);
@@ -97,6 +112,7 @@ onmessage = function(e) {
       var errmsgs = [
         "Internal error: stub function called!",
         "Available memory exceeded!",
+        "Numeric error: NaN found!",
       ];
       
       var compiled = asmjs(stdlib, {
@@ -111,9 +127,11 @@ onmessage = function(e) {
         memory_limit: 1024*32768,
       }, global_ram);
       
-      fncache.source = s2src;
-      fncache.settings = settings;
-      fncache.fn = function(x_from, y_from, i_from, x_to, y_to, i_to) {
+      cache_entry = fncache[fncache_id++];
+      fncache_id = fncache_id % fncache.length;
+      cache_entry.source = s2src;
+      cache_entry.settings = settings;
+      cache_entry.fn = function(x_from, y_from, i_from, x_to, y_to, i_to) {
         var size = 3 * (x_to - x_from) * (y_to - y_from);
         var array = get_floatarray(size);
         
@@ -141,7 +159,7 @@ onmessage = function(e) {
       };
     }
     
-    fncache.fn(x_from, y_from, i_from, x_to, y_to, i_to);
+    cache_entry.fn(x_from, y_from, i_from, x_to, y_to, i_to);
   } catch (err) {
     postMessage({kind: "error", error: err.toString()});
   }
