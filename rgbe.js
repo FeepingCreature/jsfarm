@@ -3,13 +3,12 @@
 // thanks http://croquetweak.blogspot.de/2014/08/deconstructing-floats-frexp-and-ldexp.html !
 // (Which is posted without copyright, but SqueakJS is MIT, so..)
 // TODO all of the attributions
-function frexp(value, output) {
-  var data = new DataView(new ArrayBuffer(8));
-  data.setFloat64(0, value);
-  var bits = (data.getUint32(0) >>> 20) & 0x7FF;
+function frexp(dv, value, output) {
+  dv.setFloat64(0, value);
+  var bits = (dv.getUint32(0) >>> 20) & 0x7FF;
   if (bits === 0) { // subnormal
-    data.setFloat64(0, value * Math.pow(2, 64));
-    bits = ((data.getUint32(0) >>> 20) & 0x7FF) - 64;
+    dv.setFloat64(0, value * Math.pow(2, 64));
+    bits = ((dv.getUint32(0) >>> 20) & 0x7FF) - 64;
   }
   var exponent = bits - 1022,
       mantissa = ldexp(value, -exponent);
@@ -26,6 +25,7 @@ function encode_rgbe(array) {
   var pixels = array.buffer.byteLength / 12;
   var res = new Uint8Array(pixels * 4);
   var obj = {mantissa: 0.0, exponent: 0};
+  var dv = new DataView(new ArrayBuffer(8));
   for (var i = 0; i < pixels; ++i) {
     var red = array[i*3+0];
     var grn = array[i*3+1];
@@ -39,7 +39,7 @@ function encode_rgbe(array) {
       res[i*4+2] = 0;
       res[i*4+3] = 0;
     } else {
-      frexp(v, obj);
+      frexp(dv, v, obj);
       var f = (obj.mantissa * 256) / v;
       res[i*4+0] = Math.floor(red * f);
       res[i*4+1] = Math.floor(grn * f);
@@ -54,6 +54,7 @@ function encode_rgbe10(array) {
   var pixels = array.buffer.byteLength / 12;
   var res = new Uint8Array(pixels * 5);
   var obj = {mantissa: 0.0, exponent: 0};
+  var dv = new DataView(new ArrayBuffer(8));
   for (var i = 0; i < pixels; ++i) {
     var red = array[i*3+0];
     var grn = array[i*3+1];
@@ -66,7 +67,7 @@ function encode_rgbe10(array) {
       res[i*5+3] = 0;
       res[i*5+4] = 0;
     } else {
-      frexp(v, obj);
+      frexp(dv, v, obj);
       var f = (obj.mantissa * 1024) / v;
       var r = Math.floor(red * f)|0;
       var g = Math.floor(grn * f)|0;
@@ -93,6 +94,7 @@ function encode_rgbe11(array) {
   var pixels = array.buffer.byteLength / 12;
   var res = new Uint8Array(pixels * 5);
   var obj = {mantissa: 0.0, exponent: 0};
+  var dv = new DataView(new ArrayBuffer(8));
   for (var i = 0; i < pixels; ++i) {
     var red = array[i*3+0];
     var grn = array[i*3+1];
@@ -105,7 +107,7 @@ function encode_rgbe11(array) {
       res[i*5+3] = 0;
       res[i*5+4] = 0;
     } else {
-      frexp(v, obj);
+      frexp(dv, v, obj);
       var f = (obj.mantissa * 1024) / v;
       var r = Math.floor(red * f)|0;
       var g = Math.floor(grn * f)|0;
