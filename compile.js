@@ -3235,12 +3235,7 @@ function setupSysctx() {
     };
     var js = context.js;
     if (!js) {
-      // TODO assert x,y,z are numbers
       fun = function(x, y, z) {
-        // lol
-        x = {kind: "expr", type: "float", value: x.value};
-        y = {kind: "expr", type: "float", value: y.value};
-        z = {kind: "expr", type: "float", value: z.value};
         return mkVec_direct(type, [x, y, z]);
       };
     }
@@ -3260,13 +3255,7 @@ function setupSysctx() {
     };
     var js = context.js;
     if (!js) {
-      // TODO assert x,y,z are numbers
       fun = function(x, y, z, w) {
-        // lol
-        x = {kind: "expr", type: "float", value: x.value};
-        y = {kind: "expr", type: "float", value: y.value};
-        z = {kind: "expr", type: "float", value: z.value};
-        w = {kind: "expr", type: "float", value: w.value};
         return mkVec_direct(type, [x, y, z, w]);
       };
     }
@@ -3397,19 +3386,26 @@ function setupSysctx() {
     }
     thing.fail("unimplemented: cos "+JSON.stringify(value));
   });
-  defun(sysctx, "acos", 1, function(context, thing, value) {
-    if (lit_float(value)) return {kind: "expr", type: "float", value: Math.acos(value.value)};
-    if (value.kind == "expr" && value.type == "float") {
-      return context.js.mkVar("+acos("+coerce_double(value)+")", "float", "acos");
-    }
-    thing.fail("unimplemented: acos "+JSON.stringify(value));
-  });
   defun(sysctx, "tan", 1, function(context, thing, value) {
     if (lit_float(value)) return {kind: "expr", type: "float", value: Math.tan(value.value)};
     if (value.kind == "expr" && value.type == "float") {
       return context.js.mkVar("+tan("+coerce_double(value)+")", "float", "tan");
     }
     thing.fail("unimplemented: tan "+JSON.stringify(value));
+  });
+  defun(sysctx, "asin", 1, function(context, thing, value) {
+    if (lit_float(value)) return {kind: "expr", type: "float", value: Math.asin(value.value)};
+    if (value.kind == "expr" && value.type == "float") {
+      return context.js.mkVar("+asin("+coerce_double(value)+")", "float", "asin");
+    }
+    thing.fail("unimplemented: asin "+JSON.stringify(value));
+  });
+  defun(sysctx, "acos", 1, function(context, thing, value) {
+    if (lit_float(value)) return {kind: "expr", type: "float", value: Math.acos(value.value)};
+    if (value.kind == "expr" && value.type == "float") {
+      return context.js.mkVar("+acos("+coerce_double(value)+")", "float", "acos");
+    }
+    thing.fail("unimplemented: acos "+JSON.stringify(value));
   });
   defun(sysctx, "atan2", 2, function(context, thing, y, x) {
     if (y.kind == "expr" && y.type == "float" && x.kind == "expr" && x.type == "float") {
@@ -3767,10 +3763,11 @@ function compile(files) {
   jsfile.addLine("var pow = stdlib.Math.pow;");
   jsfile.addLine("var sin = stdlib.Math.sin;");
   jsfile.addLine("var cos = stdlib.Math.cos;");
-  jsfile.addLine("var acos = stdlib.Math.acos;");
   jsfile.addLine("var tan = stdlib.Math.tan;");
-  jsfile.addLine("var imul = stdlib.Math.imul;");
+  jsfile.addLine("var asin = stdlib.Math.asin;");
+  jsfile.addLine("var acos = stdlib.Math.acos;");
   jsfile.addLine("var atan2 = stdlib.Math.atan2;");
+  jsfile.addLine("var imul = stdlib.Math.imul;");
   jsfile.addLine("var floor = stdlib.Math.floor;");
   jsfile.addLine("var fround = stdlib.Math.fround;");
   
