@@ -1,5 +1,14 @@
 'use strict';
 
+function setupStar(editor, file) {
+  var fn = function() {
+    if (editor.isClean(file.undostate)) file.editstar.css('visibility', 'hidden');
+    else file.editstar.css('visibility', 'visible');
+  };
+  file.checkStar = fn;
+  editor.on('change', fn);
+}
+
 /** @constructor */
 function EditorUi() {
   this.files = [];
@@ -21,13 +30,7 @@ function EditorUi() {
       editor.clearHistory();
       editor.markClean();
       
-      newfile.checkStar = function(editor, newfile) {
-        return function() {
-          if (editor.isClean(newfile.undostate)) newfile.editstar.css('visibility', 'hidden');
-          else newfile.editstar.css('visibility', 'visible');
-        };
-      }(editor, newfile);
-      editor.on('change', newfile.checkStar);
+      setupStar(editor, newfile);
       
       newfile.editor = editor;
       newfile.container = div;
@@ -171,7 +174,10 @@ window.getFiles = function() {
       var editor_changed = file.src != newfile.src;
       if (editor_changed) {
         file.src = newfile.src;
-        file.editor.setValue(file.src);
+        if (file.editor.getValue() != file.src) {
+          // TODO does this actually ever happen??
+          file.editor.setValue(file.src);
+        }
       }
       file.rowbase = newfile.rowbase;
       targetlist.push(file);
