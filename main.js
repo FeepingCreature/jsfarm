@@ -364,6 +364,8 @@ function RenderScene() {
   var jsource = "";
   try {
     jsource = compile(files);
+    // to check if it actually compiles
+    new Function('stdlib', 'foreign', 'heap', jsource);
   } catch (ex) {
     log("Could not compile scene: "+ex);
     return;

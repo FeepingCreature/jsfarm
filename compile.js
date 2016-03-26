@@ -1411,10 +1411,15 @@ function sexpr_dump(thing) {
 function mkVec_direct(type, array) {
   var values = new Array(array.length);
   for (var i = 0; i < type.size; ++i) {
-    if (array[i].type != type.base) {
-      throw ("vector must be made of '"+type.base+"', not '"+array[i].type+"'");
+    if (JSON.stringify(type.base) != JSON.stringify(array[i].type)) {
+      var converted = js_as_type(type.base, array[i]);
+      if (converted === null) {
+        fail(array[i], "vector must be made of '"+type.base+"', not '"+array[i].type+"'");
+      }
+      values[i] = converted;
+    } else {
+      values[i] = array[i].value;
     }
-    values[i] = array[i].value;
     if (values[i] == null) throw "what what what";
   }
   return {kind: "vector", type: type, value: values};
@@ -1542,9 +1547,9 @@ function js_set(js, thing, target, value) {
   if (target == null || value == null) fail(thing, "what");
   
   if (target.kind == "expr" && value.kind == "expr") {
-    if (target.type != value.type) {
+    if (JSON.stringify(target.type) != JSON.stringify(value.type)) {
       var converted = js_as_type(target.type, value);
-      if (!converted) {
+      if (converted === null) {
         fail(thing, "mismatch: assigning "+value.type+" to "+target.type);
       }
       value = {kind: "expr", type: target.type, value: converted};
