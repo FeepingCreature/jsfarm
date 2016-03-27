@@ -540,6 +540,7 @@ function MessageDispatcher() {
   var self = this;
   this.onData = function(msg) {
     // TODO call directly on chrome (which is sane)
+    // TODO figure out a way for less setTimeout spam
     setTimeout(function() {
       self.onDataReliable(msg);
     }, 0);

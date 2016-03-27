@@ -26,11 +26,16 @@ function formatTime(d) {
   return res;
 }
 
+var dom_queue = domq.batch();
+
 function text(node, content) {
+  /*
   while (node.firstChild) {
     node.removeChild(node.firstChild);
   }
   node.appendChild(document.createTextNode(content));
+  */
+  dom_queue.text(node, content);
 }
 
 var _progressBar = $('\
@@ -142,14 +147,19 @@ function ProgressInfo(settings) {
     }
     
     var dom_cache = this.dom_cache;
+    /*
     dom_cache['progress-bar'].setAttribute('aria-valuenow', prog_percent);
     dom_cache['progress'].style.width = prog_percent+"%";
+    */
+    dom_queue.setAttribute(dom_cache['progress-bar'], 'aria-valuenow', prog_percent);
+    dom_queue.style(dom_cache['progress'], 'width', prog_percent+"%");
     text(dom_cache['sr-only'], newlabel);
     for (var i = 0; i < dom_cache['annot'].length; ++i) {
       text(dom_cache['annot'][i], newlabel);
     }
     if (dom_cache['annot-after'].length) {
-      dom_cache['annot-after'][0].style.left = prog_percent+"%";
+      // dom_cache['annot-after'][0].style.left = prog_percent+"%";
+      dom_queue.style(dom_cache['annot-after'][0], 'left', prog_percent+"%");
     }
     
     if (this.settings.eta) {
@@ -264,8 +274,14 @@ function ProgressUI(max_fn) {
       throw ("unknown contributor for "+task.assigned_to+": "+this.label_by_id[task.assigned_to]);
     }
     var tasks_dom = this.contributors[this.label_by_id[task.assigned_to]].tasks_dom;
+    /*
     tasks_dom[0].appendChild(task._progress.dom[0]);
-    this.rescaleTaskListHeight(task.assigned_to);
+    */
+    dom_queue.appendChild(tasks_dom[0], task._progress.dom[0]);
+    var self = this;
+    dom_queue.call(function() {
+      self.rescaleTaskListHeight(task.assigned_to);
+    });
   };
   this.onTaskProgressed = function(task) {
     task._progress.update(Math.floor(task.progress * 512));
@@ -273,9 +289,12 @@ function ProgressUI(max_fn) {
   this.onTaskCompleted = function(task) {
     // this can fail if the task never even progressed before being completed.
     if (task.hasOwnProperty('_progress')) {
-      var node = task._progress.dom[0];
-      node.parentNode.removeChild(node);
-      this.rescaleTaskListHeight(task.assigned_to);
+      var tasks_dom = this.contributors[this.label_by_id[task.assigned_to]].tasks_dom;
+      dom_queue.removeChild(tasks_dom[0], task._progress.dom[0]);
+      var self = this;
+      dom_queue.call(function() {
+        self.rescaleTaskListHeight(task.assigned_to);
+      });
       delete task._progress;
     }
     
