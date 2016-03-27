@@ -57,6 +57,15 @@ var _progressBar = $('\
 
 var _progressBarCache = {};
 
+function random_blue() {
+  var hex = "0123456789abcdef";
+  var r = Math.random(), s = Math.random();
+  return "#"
+    +hex[Math.floor(r*3)+5]
+    +hex[Math.floor(r*4)+8]
+    +hex[Math.floor(s*2)+14];
+}
+
 /** @constructor */
 function ProgressInfo(settings) {
   this.settings = settings;
@@ -75,6 +84,9 @@ function ProgressInfo(settings) {
   var settings_str = JSON.stringify(settings);
   if (_progressBarCache.hasOwnProperty(settings_str)) {
     this.dom = $(_progressBarCache[settings_str].cloneNode(true));
+    if (settings.thin) {
+      this.dom.find('.progress-bar').css('background-color', random_blue());
+    }
   } else {
     this.dom = $(_progressBar.cloneNode(true));
     
