@@ -2461,17 +2461,24 @@ function eval_builtin(context, thing) {
   if (name == "alloc-struct") return makestruct_internal(context, thing, rest, "heap");
 }
 
+// dirty microoptimizations
+var reserved_identifiers = Object.create(null);
+var reserved_identifiers_templ = {
+  let1: 1, def: 1, set: 1,
+  alias1: 1,
+  lambda: 1, macro: 1,
+  if: 1, while: 1,
+  "alloc-struct": 1, "make-struct": 1/*, "require": 1*/
+};
+
+for (var key in reserved_identifiers_templ) if (reserved_identifiers_templ.hasOwnProperty(key)) {
+  reserved_identifiers[key] = 1;
+}
+
 /** @constructor */
 function Context(sup, js) {
   if (sup && !js && sup.js) js = sup.js;
   
-  var reserved_identifiers = {
-    let1: 1, def: 1, set: 1,
-    alias1: 1,
-    lambda: 1, macro: 1,
-    if: 1, while: 1,
-    "alloc-struct": 1, "make-struct": 1/*, "require": 1*/
-  };
   
   this.sup = sup;
   if (sup && sup.hasOwnProperty("types")) this.types = sup.types;
@@ -2508,11 +2515,12 @@ function Context(sup, js) {
       log("what is a "+name);
       throw "fuck";
     }
-    if (reserved_identifiers.hasOwnProperty(name)) {
+    // Why is this consistently the fastest on http://andrew.hedges.name/experiments/in/ :-(
+    if ('undefined' !== typeof reserved_identifiers[name]) {
       throw ("Cannot define variable named '"+name+"': reserved identifier!");
     }
     if (value) {
-      if (value.hasOwnProperty("set")) {
+      if ('undefined' !== typeof value['set']) {
         throw "internal issue: adding value that already has 'set' property (??)";
       }
       value.set = function(newval) {
@@ -2552,8 +2560,8 @@ function Context(sup, js) {
     return info;
   };
   this.eval = function(thing) {
-    if (thing.kind == "quote") {
-      return thing.value;
+    if (thing.kind == "expr") {
+      return thing;
     }
     if (thing.kind == "atom") {
       var res = this.lookup(thing.value);
@@ -2562,8 +2570,8 @@ function Context(sup, js) {
       
       fail(thing, "Symbol '"+thing.value+"' not found."+this.info());
     }
-    if (thing.kind == "expr") {
-      return thing;
+    if (thing.kind == "quote") {
+      return thing.value;
     }
     if (thing.kind == "list") {
       var list = thing.value;
