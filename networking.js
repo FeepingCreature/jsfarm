@@ -629,8 +629,9 @@ function RenderWorkset(connection) {
       var maybeSpawnNewConnections = null;
       
       var connect = function(id) {
-        // log_id(id, "attempt to connect");
+        // log(id, "attempt to connect");
         var con = peer.connect(id);
+        // log(id, "got connection "+con);
         
         var firstExchangeOnConnection = true;
         
@@ -1107,7 +1108,8 @@ function RenderWorkset(connection) {
     this.tasks.pop();
   };
   this.peekQueuedTask = function() {
-    for (var i = 0; i < this.tasks.length; ++i) {
+    // for (var i = 0; i < this.tasks.length; ++i) {
+    for (var i = this.tasks.length - 1; i >= 0; --i) {
       var task = this.tasks[i];
       if (task.state == 'queued') return task;
     }
@@ -1127,7 +1129,11 @@ function RenderWorkset(connection) {
     var estim_seconds_for_task = this.getPerfEstimatorFor(id).estimate(task_samples);
     var max_seconds_per_task = 10;
     var must_split = msg.x_to > dw || msg.y_to > dh; // invalid as-is
-    if (!must_split && (estim_seconds_for_task <= max_seconds_per_task || task_pixels == 1)) return false;
+    // start out with a minimum size of 4*4 (if that is still too much, the timeout error will
+    // force further subdivision (but that should usually not happen)
+    var subdiv_limit = 4*4;
+    
+    if (!must_split && (estim_seconds_for_task <= max_seconds_per_task || task_pixels < subdiv_limit)) return false;
     
     var pushed = 0;
     var push = function(task) {
@@ -1138,8 +1144,12 @@ function RenderWorkset(connection) {
     };
     
     var msg_i_size = msg.i_to - msg.i_from;
-    // don't split i too small to prevent single-pixel task spam
-    if (msg_i_size > /* 1 */ 8) {
+    // don't split i too small
+    // if (msg_i_size > /* 1 */ 8) {
+    
+    // only split the first i-row! splitting by i too much
+    // runs into _serious_ issues with bandwidth consumption
+    if (msg.i_from == 0 && msg_i_size > 4) {
       // split on i preferentially
       var bot = task, top = task.sclone();
       
