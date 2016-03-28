@@ -279,21 +279,21 @@ function ProgressUI(max_fn) {
       proginfo._set_height = 0;
     }
   };
+  this.append_remove = function(fn, task) {
+    var self = this, assigned_to = task.assigned_to;
+    var tasks_dom = self.contributors[self.label_by_id[assigned_to]].tasks_dom;
+    fn.call(dom_queue, tasks_dom[0], task._progress.dom[0]);
+    dom_queue.call(function() {
+      self.rescaleTaskListHeight(assigned_to);
+    });
+  };
   this.onTaskAccepted = function(task) {
     task._progress = new ProgressInfo({ thin: true });
     task._progress.reset(512);
     if (!this.contributors.hasOwnProperty(this.label_by_id[task.assigned_to])) {
       throw ("unknown contributor for "+task.assigned_to+": "+this.label_by_id[task.assigned_to]);
     }
-    var tasks_dom = this.contributors[this.label_by_id[task.assigned_to]].tasks_dom;
-    /*
-    tasks_dom[0].appendChild(task._progress.dom[0]);
-    */
-    dom_queue.appendChild(tasks_dom[0], task._progress.dom[0]);
-    var self = this;
-    dom_queue.call(function() {
-      self.rescaleTaskListHeight(task.assigned_to);
-    });
+    this.append_remove(dom_queue.appendChild, task);
   };
   this.onTaskProgressed = function(task) {
     task._progress.update(Math.floor(task.progress * 512));
@@ -301,12 +301,7 @@ function ProgressUI(max_fn) {
   this.onTaskCompleted = function(task) {
     // this can fail if the task never even progressed before being completed.
     if (task.hasOwnProperty('_progress')) {
-      var tasks_dom = this.contributors[this.label_by_id[task.assigned_to]].tasks_dom;
-      dom_queue.removeChild(tasks_dom[0], task._progress.dom[0]);
-      var self = this;
-      dom_queue.call(function() {
-        self.rescaleTaskListHeight(task.assigned_to);
-      });
+      this.append_remove(dom_queue.removeChild, task);
       delete task._progress;
     }
     
@@ -321,9 +316,7 @@ function ProgressUI(max_fn) {
   };
   this.onTaskAborted = function(task) {
     if (!task.hasOwnProperty('_progress')) return;
-    var node = task._progress.dom[0];
-    node.parentNode.removeChild(node);
-    this.rescaleTaskListHeight(task.assigned_to);
+    this.append_remove(dom_queue.removeChild, task);
     delete task._progress;
   };
   this.updateQuickProgInfo = function() {
