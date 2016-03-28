@@ -539,11 +539,7 @@ function MessageDispatcher() {
   };
   var self = this;
   this.onData = function(msg) {
-    // TODO call directly on chrome (which is sane)
-    // TODO figure out a way for less setTimeout spam
-    setTimeout(function() {
-      self.onDataReliable(msg);
-    }, 0);
+    self.onDataReliable(msg);
   };
 }
 
@@ -632,6 +628,11 @@ function RenderWorkset(connection) {
       var connect = function(id) {
         // log(id, "attempt to connect");
         var con = peer.connect(id);
+        if (typeof con === 'undefined') {
+          log("Connection failed. Peer state invalid?");
+          debugger;
+          return;
+        }
         // log(id, "got connection "+con);
         
         var firstExchangeOnConnection = true;
@@ -714,10 +715,7 @@ function RenderWorkset(connection) {
             }
             maybeSpawnNewConnections();
           };
-          return function() {
-            // run on the main thread
-            setTimeout(finish_fn, 0);
-          };
+          return finish_fn;
         };
         
         con.on('open', function() {
@@ -748,12 +746,9 @@ function RenderWorkset(connection) {
           
           var exchange = function(channel) {
             var advance = function() {
-              // async sync point
-              setTimeout(function() {
-                if (!(channel in exchanges)) return; // we have been killed in the interim
-                exchanges[channel].timer.reset(); // something happened! reset the timeout
-                exchanges[channel].next = exchanges[channel].next();
-              }, 0);
+              if (!(channel in exchanges)) return; // we have been killed in the interim
+              exchanges[channel].timer.reset(); // something happened! reset the timeout
+              exchanges[channel].next = exchanges[channel].next();
             };
             
             var cleanup = function () {
@@ -1066,7 +1061,7 @@ function RenderWorkset(connection) {
         
         recheckPeers();
       };
-      recheck_timer = setInterval(recheckPeersPeriodically, 10000);
+      recheck_timer = setInterval(recheckPeersPeriodically, 30000);
       recheckPeers();
     });
   };
