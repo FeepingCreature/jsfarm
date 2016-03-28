@@ -217,12 +217,87 @@ function HelpStats() {
 }
 
 /** @constructor */
+function LoopbackConnection() {
+  this.paired = null;
+  this.onData = [];
+  this.onClose = [];
+  this.send = function(msg) {
+    var paired = this.paired;
+    setTimeout(function() {
+      for (var i = 0; i < paired.onData.length; ++i) {
+        paired.onData[i](msg);
+      }
+    }, 0);
+  };
+  this.close = function() {
+    var paired = this.paired;
+    setTimeout(function() {
+      for (var i = 0; i < paired.onClose.length; ++i) {
+        paired.onClose[i]();
+      }
+    }, 0);
+  };
+  this.on = function(cond, action) {
+    if (cond == 'data') {
+      this.onData.push(action);
+      return;
+    }
+    if (cond == 'open') {
+      setTimeout(action, 0);
+      return;
+    }
+    if (cond == 'close') {
+      this.onClose.push(action);
+      return;
+    }
+    if (cond == 'error') {
+      return;
+    }
+    throw "TODO2 condition '"+cond+"'";
+  };
+}
+
+/** @constructor */
+function LoopBack() {
+  var
+    client_half = new LoopbackConnection,
+    server_half = new LoopbackConnection;
+  
+  client_half.paired = server_half;
+  server_half.paired = client_half;
+  
+  this.listAllPeers = function(fn) {
+    fn(["local"]);
+  };
+  this.connect = function(id) {
+    if (id != "local") throw ("bad connect in loopback: "+id);
+    return client_half;
+  };
+  this.on = function(cond, action) {
+    if (cond == 'connection') {
+      action(server_half);
+      return;
+    }
+    if (cond == 'open') {
+      setTimeout(action, 0);
+      return;
+    }
+    if (cond == 'error') {
+      return;
+    }
+    throw "TODO condition '"+cond+"'";
+  };
+}
+
+/** @constructor */
 function ServerConnection() {
   this.workers = [];
   
   this.peerjs = null;
   
   this.id = null;
+  
+  this.local = false;
   
   // used as a quick and dirty way to recognize ourselves to prioritize our own tasks.
   // easy to spoof, but would require us having connected to the spoofer previously.
@@ -424,6 +499,10 @@ function ServerConnection() {
   }
   this.startWorkers = function(threads) {
     if (this.workers.length) throw "internal error";
+    if (typeof threads === 'undefined') {
+      threads = Math.min(36, document.getElementById('threads').value|0);
+    }
+    this.taskqueue.limit = threads;
     this.workers = new Array(threads);
     for (var i = 0; i < threads; ++i) {
       var marker = $('<div class="worker-marker"></div>');
@@ -431,11 +510,12 @@ function ServerConnection() {
       this._startWorker(marker, i);
     }
   };
-  this.connect = function() {
+  this.isLocal = function() {
+    this.local = true;
+    this.peerjs = new LoopBack();
+  };
+  this.startup = function() {
     var self = this;
-    
-    self.peerjs = self._connectPeerJs();
-    if (!self.peerjs) return;
     
     setStatus("Status: connecting");
     
@@ -444,25 +524,28 @@ function ServerConnection() {
       self.id = id;
       setStatus("Status: connected as <span title=\""+self.id+"\">"+getMyLabel(self)+"</span>");
       $(window).on('unload', null, Disconnect);
-      
-      // sanity limit
-      var threads = Math.min(36, document.getElementById('threads').value|0);
-      
-      self.startWorkers(threads);
-      self.taskqueue.limit = threads;
+      self.startWorkers();
     });
     $('#WorkerInfo').show().css('display', 'inline-block');
+  };
+  this.shutdown = function() {
+    while (this.workers.length) {
+      this.workers.pop().worker.terminate();
+    }
+    $('#WorkerInfo').hide();
+    $('#WorkerInfo .workerlist').empty();
+  };
+  this.connect = function() {
+    this.peerjs = this._connectPeerJs();
+    if (!this.peerjs) return;
     
+    this.startup();
     $('#ConnectButton').hide();
     $('#DisconnectButton').show();
   };
   this.disconnect = function() {
-    while (this.workers.length) {
-      this.workers.pop().worker.terminate();
-    }
+    this.shutdown();
     $(window).off('unload', null, Disconnect);
-    $('#WorkerInfo').hide();
-    $('#WorkerInfo .workerlist').empty();
     
     this.peerjs.destroy();
     this.id = null;
@@ -562,6 +645,11 @@ function RenderWorkset(connection) {
   this.connections = Object.create(null);
   this.id = null;
   
+  if (connection == null) {
+    connection = new ServerConnection();
+    connection.isLocal();
+    connection.startup();
+  }
   this.connection = connection;
   
   // must be here, not in Connection, because we can't synchronize on cps from another Workset
@@ -753,7 +841,7 @@ function RenderWorkset(connection) {
             
             var cleanup = function () {
               // exchange was already killed (by a timeout?) before we received whatever caused this
-              if (!(channel in exchanges)) throw "I'm pretty sure this can't happen anymore actually.";
+              if (!(channel in exchanges)) return;
               
               exchanges[channel].timer.kill();
               delete exchanges[channel];

@@ -344,11 +344,6 @@ function next_pot(n) {
 }
 
 function RenderScene() {
-  if (!window.connection) {
-    log("You must be connected to the network!");
-    return;
-  }
-  
   $(window).trigger("startRender");
   
   // $('#console').empty();
@@ -413,6 +408,10 @@ function RenderScene() {
   });
   
   var workset = new RenderWorkset(window.connection);
+  if (workset.connection.local) {
+    $('#ConnectButton').hide();
+    $('#DisconnectButton').hide();
+  }
   
   window.workset = workset;
   
@@ -474,7 +473,14 @@ function RenderScene() {
   workset.onTaskProgress = function(task, frac) {
   };
   
-  workset.onDone = CancelRender;
+  workset.onDone = function() {
+    if (workset.connection.local) {
+      // stop our temporary threads
+      workset.connection.shutdown();
+      $('#ConnectButton').show();
+    }
+    CancelRender();
+  };
   
   var extent = Math.max(next_pot(dw), next_pot(dh));
   var task = new Range(0, 0, 0, extent, extent, quality);
