@@ -809,23 +809,29 @@ function Parser(text, fulltext_or_rowbase) {
   };
   this.gotNumber = function(only_int) {
     this.clean();
-    var hit = this.text.match(/^(-?(0x[0-9a-fA-F]+|[0-9]+|[0-9]*\.[0-9]*))(\s|[)])/);
+    var hit = this.text.match(/^([+-]?(0x[0-9a-fA-F]+|[0-9]+|[0-9]*\.[0-9]*))(\s|[)])/);
     if (!hit) return false;
-    if (hit[1].slice(0,2) == "0x") {
+    var match = hit[1];
+    var removed = 0;
+    if (match.slice(0,1) == "+") {
+      match = match.slice(1);
+      removed += 1;
+    }
+    if (match.slice(0,2) == "0x") {
       // hex literal
-      this.text = this.text.substr(hit[1].length);
-      return parseInt(hit[1].slice(2), 16);
+      this.text = this.text.substr(match.length + removed);
+      return parseInt(match.slice(2), 16);
     }
     if (only_int) {
-      var res = parseInt(hit[1], 10);
-      if (""+res == hit[1]) {
-        this.text = this.text.substr(hit[1].length);
+      var res = parseInt(match, 10);
+      if (""+res == match) {
+        this.text = this.text.substr(match.length + removed);
         return res;
       }
       return false;
     }
-    this.text = this.text.substr(hit[1].length);
-    return parseFloat(hit[1], 10);
+    this.text = this.text.substr(match.length + removed);
+    return parseFloat(match, 10);
   };
   this.gotInt = function() { return this.gotNumber(true); };
   this.eof = function() {
@@ -1669,9 +1675,9 @@ function set_internal(context, thing, rest) {
 
 function generic_return(js, thing) {
   if (thing == null) {
-    js.addLine("SP = BP;");
+    js.set("int", "SP", "BP");
     if (STACK_DEBUG) js.addLine("check_end();");
-    js.addLine("return");
+    js.addLine("return;");
     return "void";
   }
   else if (thing.kind == "vector") {
@@ -1683,42 +1689,42 @@ function generic_return(js, thing) {
       js.set(thing.type.base, rplaces[i], thing.value[i]);
     }
     
-    js.addLine("SP = BP;");
+    js.set("int", "SP", "BP");
     if (STACK_DEBUG) js.addLine("check_end();");
-    js.addLine("return");
+    js.addLine("return;");
     return thing.type;
   }
   else if (thing.kind == "expr" && (thing.type == "float" || thing.type == "bool" || thing.type == "int")) {
-    js.addLine("SP = BP;");
+    js.set("int", "SP", "BP");
     if (STACK_DEBUG) js.addLine("check_end();");
     js.addLine("return "+js_tag(thing)+";");
     return thing.type;
   }
   else if (thing.kind == "struct") {
     fail(thing, "It is not a good thing to try and return a struct by value!");
-    // js.addLine("SP = BP;");
+    js.set("int", "SP", "BP");
     // js.addLine("return "+js_tag(thing.base)+";");
     // return thing.type;
   }
   else if (thing.kind == "pointer") {
-    js.addLine("SP = BP;");
+    js.set("int", "SP", "BP");
     if (STACK_DEBUG) js.addLine("check_end();");
     js.addLine("return "+js_tag(thing.base)+";");
     return {kind: "pointer", type: thing.type};
   }
   else if (thing.kind == "closure-poly") {
     js.set("int", "_cp_base", thing.base.base.value);
-    js.addLine("SP = BP;");
+    js.set("int", "SP", "BP");
     if (STACK_DEBUG) js.addLine("check_end();");
-    js.addLine("return");
+    js.addLine("return;");
     return thing;
   }
   else if (thing.kind == "closure-pointer") {
     js.set("int", "_cp_base", thing.base.base.value);
     js.set("int", "_cp_offset", thing.fnptr.offset.value);
-    js.addLine("SP = BP;");
+    js.set("int", "SP", "BP");
     if (STACK_DEBUG) js.addLine("check_end();");
-    js.addLine("return");
+    js.addLine("return;");
     return thing.type;
   }
   else {
@@ -1901,10 +1907,9 @@ function lambda_internal(context, thing, rest) {
       }
       
       js.openSection("variables");
-      js.addLine("var BP = 0;"); // stack base pointer
       
       js.openSection("body");
-      js.addLine("BP = SP;");
+      js.defineVar("BP", "int", "SP", "variables"); // stack base pointer
       
       var abort = function() {
         // discard
@@ -1992,10 +1997,9 @@ function lambda_internal(context, thing, rest) {
     }
     
     js.openSection("variables");
-    js.addLine("var BP = 0;"); // stack base pointer
     
     js.openSection("body");
-    js.addLine("BP = SP;");
+    js.defineVar("BP", "int", "SP", "variables"); // stack base pointer
     
     // reform our decomposed parameters back into 'type.args'
     var inside_flat_arglist = [];
@@ -2866,10 +2870,8 @@ function JsFile() {
     }
     return name;
   };
-  this.allocVar = function(value, type, hint, location) {
+  this.defineVar = function(name, type, value, location) {
     if (location == null) location = "variables";
-    
-    var name = this.allocName("v", hint);
     
     var sample = null;
     if (type == "float") sample = tagf_init("0");
@@ -2904,18 +2906,19 @@ function JsFile() {
       "cannot make var: what is type of " +
       JSON.stringify(value) +
       "?");
+    var name = this.allocName("v", hint);
     if (value === null) {
       return {
         kind: "expr",
         type: type,
-        value: this.allocVar(null, type, hint, location)
+        value: this.defineVar(name, type, null, location)
       };
     }
     if (typeof value == "number" || typeof value == "string" || typeof value == "boolean") {
       return {
         kind: "expr",
         type: type,
-        value: this.allocVar(value, type, hint, location)
+        value: this.defineVar(name, type, value, location)
       };
     }
     if (typeof value == "object") {
@@ -2925,7 +2928,7 @@ function JsFile() {
         return {
           kind: "expr",
           type: type,
-          value: this.allocVar(converted, type, hint, location)
+          value: this.defineVar(name, type, converted, location)
         };
       }
     }
@@ -3803,46 +3806,46 @@ function compile(files) {
   
   jsfile.openSection("globals");
   
-  jsfile.addLine("var sqrt = stdlib.Math.sqrt;");
-  jsfile.addLine("var abs = stdlib.Math.abs;");
-  jsfile.addLine("var pow = stdlib.Math.pow;");
-  jsfile.addLine("var sin = stdlib.Math.sin;");
-  jsfile.addLine("var cos = stdlib.Math.cos;");
-  jsfile.addLine("var tan = stdlib.Math.tan;");
-  jsfile.addLine("var asin = stdlib.Math.asin;");
-  jsfile.addLine("var acos = stdlib.Math.acos;");
-  jsfile.addLine("var atan2 = stdlib.Math.atan2;");
-  jsfile.addLine("var imul = stdlib.Math.imul;");
-  jsfile.addLine("var floor = stdlib.Math.floor;");
-  jsfile.addLine("var fround = stdlib.Math.fround;");
-  
-  jsfile.addLine("var Infinity = stdlib.Infinity;");
-  jsfile.addLine("var Int32Array = stdlib.Int32Array");
-  jsfile.addLine("var Float32Array = stdlib.Float32Array;");
-  jsfile.addLine("var Float64Array = stdlib.Float64Array;");
-  
-  jsfile.addLine("var alert_ = foreign.alert_;");
-  jsfile.addLine("var error = foreign.error;");
-  jsfile.addLine("var isFinite = foreign.isFinite;");
-  jsfile.addLine("var hit = foreign.hit;");
-  jsfile.addLine("var dw = foreign.dw|0;");
-  jsfile.addLine("var dh = foreign.dh|0;");
-  jsfile.addLine("var di = foreign.di|0;");
-  jsfile.addLine("var _memory_limit = foreign.memory_limit|0;");
-  
-  jsfile.addLine("var mem_i32 = new Int32Array(heap);");
-  jsfile.addLine("var mem_f32 = new Float32Array(heap);");
-  
-  // scratch space for vector return
-  jsfile.addLine("var _rvec_x = "+tagf_init(0)+";");
-  jsfile.addLine("var _rvec_y = "+tagf_init(0)+";");
-  jsfile.addLine("var _rvec_z = "+tagf_init(0)+";");
-  jsfile.addLine("var _rvec_w = "+tagf_init(0)+";");
-  
-  // scratch space for closure pointer return
-  jsfile.addLine("var _cp_base = 0;");
-  jsfile.addLine("var _cp_offset = 0;");
-  
+  jsfile.add(
+    "var sqrt = stdlib.Math.sqrt;\n"+
+    "var abs = stdlib.Math.abs;\n"+
+    "var pow = stdlib.Math.pow;\n"+
+    "var sin = stdlib.Math.sin;\n"+
+    "var cos = stdlib.Math.cos;\n"+
+    "var tan = stdlib.Math.tan;\n"+
+    "var asin = stdlib.Math.asin;\n"+
+    "var acos = stdlib.Math.acos;\n"+
+    "var atan2 = stdlib.Math.atan2;\n"+
+    "var imul = stdlib.Math.imul;\n"+
+    "var floor = stdlib.Math.floor;\n"+
+    "var fround = stdlib.Math.fround;\n"+
+    "\n"+
+    "var Infinity = stdlib.Infinity;\n"+
+    "var Int32Array = stdlib.Int32Array;\n"+
+    "var Float32Array = stdlib.Float32Array;\n"+
+    "var Float64Array = stdlib.Float64Array;\n"+
+    "\n"+
+    "var alert_ = foreign.alert_;\n"+
+    "var error = foreign.error;\n"+
+    "var isFinite = foreign.isFinite;\n"+
+    "var hit = foreign.hit;\n"+
+    "var dw = foreign.dw|0;\n"+
+    "var dh = foreign.dh|0;\n"+
+    "var di = foreign.di|0;\n"+
+    "var _memory_limit = foreign.memory_limit|0;\n"+
+    "\n"+
+    "var mem_i32 = new Int32Array(heap);\n"+
+    "var mem_f32 = new Float32Array(heap);\n"+
+    "\n"+
+    // scratch space for vector return
+    "var _rvec_x = "+tagf_init(0)+";\n"+
+    "var _rvec_y = "+tagf_init(0)+";\n"+
+    "var _rvec_z = "+tagf_init(0)+";\n"+
+    "var _rvec_w = "+tagf_init(0)+";\n"+
+    "\n"+
+    // scratch space for closure pointer return
+    "var _cp_base = 0;\n"+
+    "var _cp_offset = 0;\n");
   jsfile.openSection("variables");
   
   // stack pointer
@@ -3850,10 +3853,10 @@ function compile(files) {
   // heap pointer
   jsfile.addLine("var HP = foreign.stackborder|0;"); // grows up, overflow bounded
   // backup
-  jsfile.addLine("var stackborder = foreign.stackborder|0;")
+  jsfile.addLine("var stackborder = foreign.stackborder|0;");
   
-  jsfile.addLine("var stackdepth = 0;");
   if (STACK_DEBUG) {
+    jsfile.addLine("var stackdepth = 0;");
     jsfile.addLine("var check_start = function() {"
       +"if (stackdepth > 100) debugger;"
       +"stackdepth ++;"
@@ -4083,11 +4086,8 @@ function compile(files) {
   
   var inside_args = reconstruct_array(jsfile, trace_args, inside_flatargs);
   
-  jsfile.addLine("var BP = 0;");
-  
   jsfile.openSection("body");
-  
-  jsfile.addLine("BP = SP|0;");
+  jsfile.defineVar("BP", "int", "SP", "variables"); // stack base pointer
   
   // call innermost lambda: vec = (fn x y i)
   var vec = callctx.eval(list(
@@ -4102,7 +4102,7 @@ function compile(files) {
   
   jsfile.addLine("hit(~~"+xvar+", ~~"+yvar+", "+ivar+", "+rvar+", "+gvar+", "+bvar+");");
   
-  jsfile.addLine("SP = BP|0;");
+  jsfile.set("int", "SP", "BP");
   
   jsfile.unindent();
   jsfile.addLine("}");
