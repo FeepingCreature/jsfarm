@@ -118,7 +118,7 @@ function encode_rgbe11(array) {
       // [low 3 bits of r][high 5 bits of g]
       res[i*5+1] = ((r & 0x07) << 5) | ((g >>> 6) & 0x1f);
       // [low 6 bits of g][high 2 bits of b]
-      res[i*5+2] = ((g & 0xf3) << 2) | ((b >>> 9) & 0x03);
+      res[i*5+2] = ((g & 0x3f) << 2) | ((b >>> 9) & 0x03);
       // [high 8 bits of low 9 bits of b]
       res[i*5+3] = (b & 0x1ff) >>> 1;
       // [low bit of b][7 bits of e]
