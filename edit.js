@@ -51,8 +51,10 @@ function EditorUi(jq) {
   this.markClean = function() {
     for (var i = 0; i < this.files.length; ++i) {
       var file = this.files[i];
-      file.undostate = file.editor.changeGeneration(true);
-      file.checkStar();
+      if (file.hasOwnProperty('editor')) {
+        file.undostate = file.editor.changeGeneration(true);
+        file.checkStar();
+      }
     }
   };
   this.addRiders = function(newfiles) {
