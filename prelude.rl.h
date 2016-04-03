@@ -2,6 +2,8 @@
 (def fov 0.75)
 ; (def fov 0.2)
 
+(def PI 3.1415926538)
+
 (def true (= 1 1))
 (def false (= 1 2))
 

@@ -210,10 +210,12 @@ function setEditorErrorAt(editor, loc1, loc2, text) {
   
   var err_file = editor.files[i-1]; // "last" file in which the error could lie
   
-  var cm_editor = err_file.editor;
   loc1.row -= err_file.rowbase;
   loc2.row -= err_file.rowbase;
   
+  editor.showFile(err_file.name);
+  
+  var cm_editor = err_file.editor;
   var mark = cm_editor.markText(
     {line: loc1.row, ch: loc1.column},
     {line: loc2.row, ch: loc2.column},
@@ -232,7 +234,6 @@ function setEditorErrorAt(editor, loc1, loc2, text) {
   
   cm_editor.setGutterMarker(loc1.row, "error-gutter", marker[0]);
   
-  editor.showFile(err_file.name);
   
   // thanks http://codemirror.977696.n3.nabble.com/Scroll-to-line-td4028275.html
   var h = cm_editor.getScrollInfo().clientHeight;
