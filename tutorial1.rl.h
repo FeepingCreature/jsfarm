@@ -1,3 +1,4 @@
+<textarea id=XSTR(IDENT)>
 (require util nothing)
 
 (lambda ()
@@ -5,3 +6,4 @@
     (scene (nothing))
     (render scene)))
 #include "raytracer.rl.h"
+</textarea>

@@ -24,20 +24,25 @@
 <p>Bla Bla Bla Bla Bla!
 </p>
 
+#include "util.h"
 #define WIDTH 400
 #define HEIGHT 300
 
-#define RFILE "tutorial1.rl.h"
 #define IDENT ui1
+#include "tutorial1.rl.h"
 #include "renderer.html.h"
 
-<p>Bla bla blah.
+<hr>
+
+<p>
+Bla bla blah.
 </p>
 
-#define RFILE "tutorial2.rl.h"
 #undef IDENT
 #define IDENT ui2
+#include "tutorial2.rl.h"
 #include "renderer.html.h"
+
 
 #include "themeswitch.html.h"
 

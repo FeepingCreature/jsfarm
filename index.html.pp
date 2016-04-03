@@ -48,15 +48,17 @@
   </div>
 </div>
 
+#include "util.h"
 #define WIDTH 512
 #define HEIGHT 512
-#define RFILE "default.rl.h"
+
 #define IDENT ui1
+#include "default.rl.h"
 #include "renderer.html.h"
 
 <script>
   $('#target')[0].defaultValue = location.host+"/jsfarm";
-  var dom = document.getElementById(XSTR(IDENT));
+  var dom = document.getElementById(XSTR(IDENT-container));
   var editor = dom.editor_ui;
   LoadSettings();
   LoadStateFromAnchor(dom);

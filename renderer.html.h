@@ -1,6 +1,4 @@
-<!-- :sigh: -->
-#define XSTR(s) STR(s)
-#define STR(s) #s
+#define CONTAINER     IDENT-container
 #define QPI           IDENT-QuickProgInfo
 #define IMAGE_TAB     IDENT-image-tab
 #define IMAGE_PANE    IDENT-image-pane
@@ -8,16 +6,13 @@
 #define PROGRESS_PANE IDENT-progress-pane
 #define RESULT_AREA   IDENT-result-area
 #define PROGRESS      IDENT-progress
-<div class="render_ui" id=XSTR(IDENT)>
+<div class="render_ui" id=XSTR(CONTAINER)>
 <table><tr><td style="vertical-align:top;width:100%;height:100%;">
 
 <div id="editors">
 <ul id="riders" class="nav nav-tabs">
 </ul>
 <span id="editors_content" class="tab-content">
-<textarea id="editor">
-#include RFILE
-</textarea>
 </span>
 </div>
 
@@ -60,12 +55,13 @@
 <input type="text" size="4" id="quality" name="quality" value="32">
 </div>
 <script>
-  var dom = document.getElementById(XSTR(IDENT));
+  var dom = document.getElementById(XSTR(CONTAINER));
   var canvas = $(dom).find('.render-canvas');
   var editor = new EditorUi($(dom));
   dom.editor_ui = editor;
-  editor.files = splitSrc($.trim($(dom).find('#editor')[0].value));
+  editor.files = splitSrc($.trim($(XSTR(#IDENT))[0].value));
   editor.rebuildFileUi(editor.files);
+  $(XSTR(#IDENT)).remove();
   setupCanvasUpload(canvas);
   $(window).on('change_editor_theme', function(str) {
     for (var i = 0; i < editor.files.length; ++i) {
