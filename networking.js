@@ -1,7 +1,7 @@
 'use strict';
 
-function setStatus(msg) {
-  $('#StatusPanel').html(msg);
+function setStatus(jq, msg) {
+  jq.find('#StatusPanel').html(msg);
 }
 
 function log_id(id) {
@@ -26,9 +26,11 @@ function log_id(id) {
 }
 
 function getMyLabel(self) {
-  var jq_ident = ""+document.getElementById('ident').value;
-  if (jq_ident == "") jq_ident = null;
-  if (jq_ident) return jq_ident;
+  var jq_ident = "";
+  if (document.getElementById('ident') != null) {
+    jq_ident = ""+document.getElementById('ident').value;
+  }
+  if (jq_ident != "") return jq_ident;
   var hw = hashwords({wordLength: [1,5]});
   return hw.hash(self.id).join("");
 }
@@ -54,7 +56,9 @@ function CheckTarget() {
   }
 }
 
-$(CheckTarget); // check on startup
+if ($('#target').length) {
+  $(CheckTarget); // check on startup, if relevant
+}
 
 /** @constructor */
 function RobinTask(con, evictfn) {
@@ -222,9 +226,11 @@ function LoopbackConnection() {
   this.onData = [];
   this.onClose = [];
   this.send = function(msg) {
+    // log("< ", JSON.stringify(msg));
     var paired = this.paired;
     setTimeout(function() {
       for (var i = 0; i < paired.onData.length; ++i) {
+        // log("> ", JSON.stringify(msg));
         paired.onData[i](msg);
       }
     }, 0);
@@ -290,7 +296,7 @@ function LoopBack() {
 }
 
 /** @constructor */
-function ServerConnection() {
+function ServerConnection(jq) {
   this.workers = [];
   
   this.peerjs = null;
@@ -448,7 +454,7 @@ function ServerConnection() {
         if (state == 'busy') {
           if (this.state != 'idle') throw ("invalid state transition from '"+this.state+"' to 'busy'");
           this.state = 'busy';
-          marker.css('background-color', 'yellow');
+          if (marker.length) dom_queue.style(marker[0], 'background-color', 'yellow');
           this.worker_timeout_timer = new TimeoutTimer(30000, this.onTimeout.bind(this));
         } else if (state == 'idle') {
           if (this.state != 'busy' && this.state != '') {
@@ -456,7 +462,7 @@ function ServerConnection() {
           }
           this.state = 'idle';
           if (this.worker_timeout_timer) this.worker_timeout_timer.kill();
-          marker.css('background-color', 'lightgreen');
+          if (marker.length) dom_queue.style(marker[0], 'background-color', 'lightgreen');
         } else throw ('unknown worker state '+state);
       },
       giveWork: function(msg) {
@@ -500,13 +506,17 @@ function ServerConnection() {
   this.startWorkers = function(threads) {
     if (this.workers.length) throw "internal error";
     if (typeof threads === 'undefined') {
-      threads = Math.min(36, document.getElementById('threads').value|0);
+      if (document.getElementById('threads') != null) {
+        threads = Math.min(36, document.getElementById('threads').value|0);
+      } else {
+        threads = 2;
+      }
     }
     this.taskqueue.limit = threads;
     this.workers = new Array(threads);
     for (var i = 0; i < threads; ++i) {
       var marker = $('<div class="worker-marker"></div>');
-      $('#WorkerInfo .workerlist').append(marker);
+      jq.find('#WorkerInfo .workerlist').append(marker);
       this._startWorker(marker, i);
     }
   };
@@ -517,31 +527,31 @@ function ServerConnection() {
   this.startup = function() {
     var self = this;
     
-    setStatus("Status: connecting");
+    setStatus(jq, "Status: connecting");
     
     self.peerjs.on('connection', self.handleIncomingConnection.bind(self));
     self.peerjs.on('open', function(id) {
       self.id = id;
-      setStatus("Status: connected as <span title=\""+self.id+"\">"+getMyLabel(self)+"</span>");
+      setStatus(jq, "Status: connected as <span title=\""+self.id+"\">"+getMyLabel(self)+"</span>");
       $(window).on('unload', null, Disconnect);
       self.startWorkers();
     });
-    $('#WorkerInfo').show().css('display', 'inline-block');
+    jq.find('#WorkerInfo').show().css('display', 'inline-block');
   };
   this.shutdown = function() {
     while (this.workers.length) {
       this.workers.pop().worker.terminate();
     }
-    $('#WorkerInfo').hide();
-    $('#WorkerInfo .workerlist').empty();
+    jq.find('#WorkerInfo').hide();
+    jq.find('#WorkerInfo .workerlist').empty();
   };
   this.connect = function() {
     this.peerjs = this._connectPeerJs();
     if (!this.peerjs) return;
     
     this.startup();
-    $('#ConnectButton').hide();
-    $('#DisconnectButton').show();
+    jq.find('#ConnectButton').hide();
+    jq.find('#DisconnectButton').show();
   };
   this.disconnect = function() {
     this.shutdown();
@@ -550,9 +560,9 @@ function ServerConnection() {
     this.peerjs.destroy();
     this.id = null;
     
-    $('#DisconnectButton').hide();
-    $('#ConnectButton').show();
-    setStatus("Status: not running");
+    jq.find('#DisconnectButton').hide();
+    jq.find('#ConnectButton').show();
+    setStatus(jq, "Status: not running");
   };
 };
 
@@ -627,14 +637,14 @@ function MessageDispatcher() {
 }
 
 /** @constructor */
-function RenderWorkset(connection) {
+function RenderWorkset(jq, connection) {
   var self = this;
   
   this.workers = [];
   
   this.tasks = [];
   this.task_defaults = {};
-  this.progress_ui = new ProgressUI(function() { return self.task_defaults.dw * self.task_defaults.dh * self.task_defaults.di; });
+  this.progress_ui = new ProgressUI(jq, function() { return self.task_defaults.dw * self.task_defaults.dh * self.task_defaults.di; });
   
   this.peerlist = [];
   this.peerlist_last_updated = null;
@@ -646,7 +656,7 @@ function RenderWorkset(connection) {
   this.id = null;
   
   if (connection == null) {
-    connection = new ServerConnection();
+    connection = new ServerConnection(jq);
     connection.isLocal();
     connection.startup();
   }
@@ -705,7 +715,7 @@ function RenderWorkset(connection) {
       return;
     }
     
-    var goIdle = function() { setStatus("idle", "peer check"); };
+    var goIdle = function() { setStatus(jq, "idle", "peer check"); };
     
     // don't list peers if we got no work for them
     if (!self.gotQueuedTasks()) return;
@@ -859,24 +869,24 @@ function RenderWorkset(connection) {
             var time_response = function(fn) {
               var from = time();
               var to = null;
-              con.send({kind: "ping", channel: channel});
+              set_next(function() { fn(to - from); }); // yield; return to - from;
               dispatch.waitMsg(channel, 'pong', function(msg) {
                 to = time();
                 advance();
                 return true;
               });
-              set_next(function() { fn(to - from); }); // yield; return to - from;
+              con.send({kind: "ping", channel: channel});
             };
             
             var get_label = function(fn) {
-              con.send({kind: "whoareyou", channel: channel, whoami: getMyLabel(self.connection)});
               var res = null;
+              set_next(function() { fn(res); }); // yield; return res;
               dispatch.waitMsg(channel, 'iamcalled', function(msg) {
                 res = msg.label;
                 advance();
                 return true;
               });
-              set_next(function() { fn(res); }); // yield; return res;
+              con.send({kind: "whoareyou", channel: channel, whoami: getMyLabel(self.connection)});
             };
             
             var taskAccepted = function(task, fn) {
@@ -898,9 +908,7 @@ function RenderWorkset(connection) {
               tasksInFlight[task.id] = task;
               
               set_next(function() { fn(result); }); // yield; return result;
-              
               dispatch.waitMsg(channel, /accepted|rejected/, reactTaskAccepted);
-              
               con.send({kind: 'task', message: task.message, secret: self.connection.secret, channel: channel});
             };
             

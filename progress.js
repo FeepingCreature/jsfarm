@@ -187,7 +187,7 @@ function ProgressInfo(settings) {
 }
 
 /** @constructor */
-function ProgressUI(max_fn) {
+function ProgressUI(jq, max_fn) {
   this.main_progress = new ProgressInfo({percent: true, fraction: true, eta: true, label_inside: true});
   this.max_fn = max_fn;
   this.label_by_id = {};
@@ -199,13 +199,13 @@ function ProgressUI(max_fn) {
   
   this.dom = dom;
   this.cache = {
-    '#QuickProgInfo': $('#QuickProgInfo')[0]
+    '.QuickProgInfo': jq.find('.QuickProgInfo')[0]
   };
   
   this.reset = function() {
     this.main_progress.reset(this.max_fn());
     
-    text(this.cache['#QuickProgInfo'], "");
+    text(this.cache['.QuickProgInfo'], "");
     
     for (var key in this.contributors) if (this.contributors.hasOwnProperty(key)) {
       this.contributors[key].dom_outer.detach();
@@ -320,7 +320,7 @@ function ProgressUI(max_fn) {
     delete task._progress;
   };
   this.updateQuickProgInfo = function() {
-    text(this.cache['#QuickProgInfo'], this.num_connections+" peers - "
+    text(this.cache['.QuickProgInfo'], this.num_connections+" peers - "
       +this.main_progress.getPercent()+"% - "
       +this.main_progress.dom_cache['eta'].textContent);
   };

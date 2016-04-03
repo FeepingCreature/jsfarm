@@ -2261,7 +2261,11 @@ function while_internal(context, thing, rest) {
     js.indent();
     var test = context.eval(while_props.test);
     if (test.kind == "expr" && test.type == "bool") {
-      js.addLine("if (!"+paren_maybe(test.value, "!")+") break;");
+      var value = test.value;
+      if (value === true) value = "1";
+      else if (value === false) value = "0";
+      if (paren_maybe(value, "!").indexOf("true") != -1) debugger;
+      js.addLine("if (!"+paren_maybe(value, "!")+") break;");
     }
     else thing.fail("unimplemented: while test that's "+JSON.stringify(test));
     res = context.eval(while_props.body);
@@ -2572,7 +2576,8 @@ function Context(sup, js) {
       
       if (typeof res != "undefined") return res;
       
-      fail(thing, "Symbol '"+thing.value+"' not found."+this.info());
+      // fail(thing, "Symbol '"+thing.value+"' not found."+this.info());
+      fail(thing, "Symbol '"+thing.value+"' not found.");
     }
     if (thing.kind == "quote") {
       return thing.value;
@@ -3776,9 +3781,6 @@ function setupSysctx() {
     log("value = ", JSON.stringify(value));
     fail(thing, "unimplemented!");
   });
-  
-  sysctx.add("true", {kind: "expr", type: "bool", value: true});
-  sysctx.add("false", {kind: "expr", type: "bool", value: false});
   
   sysctx.add("Infinity", {kind: "expr", type: "float", value: "Infinity"});
   sysctx.add("dw", {kind: "expr", type: "int", value: "dw"});

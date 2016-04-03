@@ -10,34 +10,28 @@ function setupStar(editor, file) {
 }
 
 /** @constructor */
-function EditorUi() {
+function EditorUi(jq) {
   this.files = [];
   this.addEditors = function(newfiles) {
-    var editors_dom = $('#editors_content');
+    var editors_dom = jq.find('#editors_content');
     for (var i = 0; i < newfiles.length; ++i) {
       var newfile = newfiles[i];
       var div = $('<div class="tab-pane"></div>');
       var area = $('<textarea></textarea>');
       div.append(area);
       
+      area.val(newfile.src);
+      
       var position = newfile.position || editors_dom.children().length;
       var marker = editors_dom.children().eq(position - 1);
       if (marker.length) marker.after(div);
       else editors_dom.append(div);
       
-      var editor = CodeMirror.fromTextArea(area[0], editor_cfg);
-      editor.setValue(newfile.src);
-      editor.clearHistory();
-      editor.markClean();
-      
-      setupStar(editor, newfile);
-      
-      newfile.editor = editor;
       newfile.container = div;
     }
   };
   this.rebuildEditors = function(newfiles) {
-    var editors_dom = $('#editors_content');
+    var editors_dom = jq.find('#editors_content');
     editors_dom.empty();
     this.addEditors(newfiles);
   };
@@ -49,6 +43,7 @@ function EditorUi() {
   this.allClean = function() {
     for (var i = 0; i < this.files.length; ++i) {
       var file = this.files[i];
+      if (!file.hasOwnProperty('editor')) continue; // uninitialized
       if (!file.editor.isClean(file.undostate)) return false;
     }
     return true;
@@ -62,7 +57,7 @@ function EditorUi() {
   };
   this.addRiders = function(newfiles) {
     var self = this;
-    var riders = $('#riders');
+    var riders = jq.find('#riders');
     for (var i = 0; i < newfiles.length; ++i) {
       var newfile = newfiles[i];
       var li = $('<li role="presentation"></li>');
@@ -75,7 +70,7 @@ function EditorUi() {
       } else {
         tn = document.createTextNode(newfile.name);
       }
-      var editstar = $('<span style="visibility:hidden;">*</span>');;
+      var editstar = $('<span style="visibility:hidden;">*</span>');
       
       a.append(tn);
       a.append(editstar);
@@ -98,7 +93,16 @@ function EditorUi() {
       if (file.name == name) {
         file.container.css('display', 'inline-block');
         file.rider.addClass('active');
-        file.editor.refresh();
+        if (!file.hasOwnProperty('editor')) {
+          var area = file.container.find('textarea')[0];
+          file.editor = CodeMirror.fromTextArea(area, getEditorCfg(jq));
+          setupStar(file.editor, file);
+          setTimeout(function(file) {
+            return function() {
+              file.editor.refresh();
+            };
+          }(file), 0);
+        }
       } else {
         file.container.hide();
         file.rider.removeClass('active');
@@ -106,7 +110,7 @@ function EditorUi() {
     }
   };
   this.rebuildRiders = function(newfiles) {
-    var riders = $('#riders');
+    var riders = jq.find('#riders');
     riders.empty();
     this.addRiders(newfiles);
   };
@@ -118,7 +122,8 @@ function EditorUi() {
   this.rebuildFileUi = function(newfiles) {
     this.rebuildEditors(newfiles);
     this.rebuildRiders(newfiles);
-    this.showFile(null);
+    var self = this;
+    setTimeout(function() { self.showFile(null); }, 0);
   };
   this.removeFromUi = function(rmfiles) {
     this.removeEditors(rmfiles);
@@ -130,24 +135,19 @@ function EditorUi() {
   };
 }
 
-var editor = new EditorUi;
-window.editor = editor;
-
-window.getFullSrc = function() {
+function getFullSrc(editor) {
   // read back
-  // TODO move to files.js
   var src = "";
   for (var i = 0; i < editor.files.length; ++i) {
     var file = editor.files[i];
-    src += file.editor.getValue();
+    src += file.currentSource();
   }
   return src;
-};
+}
 
-window.getFiles = function() {
-  var src = window.getFullSrc();
+function getFiles(editor) {
+  var src = getFullSrc(editor);
   // rebuild/reassign line numbers and contents
-  // TODO move into editor
   var files = editor.files;
   var newfiles = splitSrc(src);
   for (var i = 0; i < files.length; ++i) files[i].assigned = false;
@@ -193,11 +193,10 @@ window.getFiles = function() {
   editor.files = targetlist;
   
   return targetlist;
-};
+}
 
-window.setErrorAt = function(loc1, loc2, text) {
+function setEditorErrorAt(editor, loc1, loc2, text) {
   var i = null;
-  var editor = window.editor;
   for (i = 0; i < editor.files.length; ++i) {
     editor.files[i].clear();
   }

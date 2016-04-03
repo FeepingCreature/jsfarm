@@ -19,7 +19,7 @@
   margin-bottom: 0px;
 }
 
-#progress {
+.progress-container {
   width: 512px;
   height: 507px;
   margin-bottom: 5.5px;
@@ -27,7 +27,7 @@
   overflow-y: auto;
 }
 
-#progress-pane {
+.progress-pane {
   position:absolute;
   top:0px;
   margin:0px;
@@ -106,14 +106,14 @@ input[type="text"] {
   font-family: monospace;
 }
 
-#canvas {
+.render-canvas {
   margin-top: 6px;
   width : 512px;
   height: 512px;
   z-index: 6;
 }
 
-#canvas-wrapper {
+.canvas-wrapper {
   /* center the canvas x/y */
   display: flex;
   flex-direction: column;

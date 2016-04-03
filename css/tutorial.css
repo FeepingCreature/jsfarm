@@ -1,0 +1,19 @@
+.progress-container {
+  width: 400px;
+  height: 295px;
+}
+
+.CodeMirror {
+  width: 600px;
+  height: 284px;
+}
+
+.render-canvas {
+  width : 400px;
+  height: 300px;
+}
+
+.canvas-wrapper {
+  width: 402px;
+  height: 302px;
+}

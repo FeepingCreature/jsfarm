@@ -5,7 +5,7 @@ $('#result_area > .nav-tabs a').click(function (e) {
   $(this).tab('show');
 });
 
-var editor_cfg = {
+var editor_defaults = {
   lineNumbers: true,
   mode: "renderlisp",
   matchBrackets: true,
@@ -15,84 +15,27 @@ var editor_cfg = {
   viewportMargin: Infinity,
   showCursorWhenSelecting: true,
   lineWiseCopyCut: false, // why is this on by default??
-  extraKeys: {
-    'Ctrl-Enter': function(cm) {
-      RenderOrCancel();
-    },
-    'Ctrl-Up': function(cm) {
-      $('#quality').val(($('#quality').val()|0) * 2);
-    },
-    'Ctrl-Down': function(cm) {
-      $('#quality').val(($('#quality').val()|0) / 2);
-    },
-  },
 };
 
-var css_default_before = [
-  'css/bootstrap.min.css',
-  'addon/lint/lint.css',
-  'lib/codemirror.css',
-];
-
-var css_default_after = [
-  'css/site.css',
-];
-
-var themes = {
-  'light': {
-    editor_theme: 'neat',
-    css: [
-      'css/bootstrap-theme.min.css',
-      'css/neat.css',
-      'site-light.css',
-    ]
-  },
-  'dark': {
-    editor_theme: 'lesser-dark',
-    css: [
-      'css/bootstrap-cyborg.min.css',
-      'css/lesser-dark.css',
-      'site-dark.css',
-    ]
-  },
-};
-
-function loadCss(url) {
-  var link = document.createElement("link");
-  link.href = url;
-  link.type = "text/css";
-  link.rel = "stylesheet";
-  link.className = "theme";
-  $('meta').add('link.theme').last().after(link);
-}
-function loadTheme(theme) {
-  $('link.theme').remove();
-  var theme = themes[theme];
-  for (var i = 0; i < css_default_before.length; i++) {
-    loadCss(css_default_before[i]);
-  }
-  for (var i = 0; i < theme.css.length; i++) {
-    loadCss(theme.css[i]);
-  }
-  for (var i = 0; i < css_default_after.length; i++) {
-    loadCss(css_default_after[i]);
-  }
-  editor_cfg.theme = theme.editor_theme;
-  var editor = window.editor;
-  for (var i = 0; i < editor.files.length; ++i) {
-    var file = editor.files[i];
-    file.editor.setOption('theme', theme.editor_theme);
-  }
+function getEditorCfg(jq) {
+  return $.extend({}, editor_defaults, {
+    extraKeys: {
+      'Ctrl-Enter': function(cm) {
+        RenderOrCancel(jq);
+      },
+      'Ctrl-Up': function(cm) {
+        jq.find('#quality').val((jq.find('#quality').val()|0) * 2);
+      },
+      'Ctrl-Down': function(cm) {
+        jq.find('#quality').val((jq.find('#quality').val()|0) / 2);
+      },
+    },
+  });
 }
 
 var theme = Cookies.get('theme');
 if (!theme || !themes.hasOwnProperty(theme)) theme = 'light';
 loadTheme(theme);
-
-function setTheme(theme) {
-  Cookies.set('theme', theme);
-  loadTheme(theme);
-}
 
 function bootstrap_progbar() {
   var progbar = $(
@@ -129,7 +72,7 @@ function SaveSettings() {
 
 var StorageHandlers = {
   "gist.github.com": {
-    save: function(src) {
+    save: function(src, editor) {
       var obj = {
         description: "JSFarm Saved File",
         files: {
@@ -143,7 +86,7 @@ var StorageHandlers = {
           var file_id = /\/raw\/([^\/]*)/.exec(raw_url)[1];
           var key = file_id+","+obj.html_url;
           setAnchorState('gist', key);
-          MarkEditorsSaved();
+          editor.markClean();
           var a = document.createElement("a");
           a.href = obj.html_url;
           logJq($(document.createTextNode('> ')).add($(a).text("Script saved.")).add('<br>'));
@@ -205,8 +148,9 @@ function getAnchorState(key) {
   return null;
 }
 
-function Save() {
-  StorageHandlers["gist.github.com"].save(window.getFullSrc());
+function Save(jq) {
+  var dom = jq[0];
+  StorageHandlers["gist.github.com"].save(getFullSrc(dom.editor_ui), dom.editor_ui);
 }
 
 function OpenLoadingModal() {
@@ -222,13 +166,15 @@ function CloseLoadingModal() {
 
 function resizeCanvas(canvas, width, height) {
   var jq = $(canvas);
+  var cw = jq.closest('.canvas-wrapper');
+  var container_width = cw.width(), container_height = cw.height();
   if (canvas.width != width || canvas.height != height) {
     canvas.width = width;
     canvas.height = height;
   }
   
   // aspect ratio
-  var smallscale = Math.min(512 / width, 512 / height);
+  var smallscale = Math.min(container_width / width, container_height / height);
   var small_w = (width  * smallscale)|0;
   var small_h = (height * smallscale)|0;
   
@@ -274,8 +220,9 @@ function resizeCanvas(canvas, width, height) {
   }
 }
 
-function LoadStateFromAnchor(onDone) {
+function LoadStateFromAnchor(dom) {
   var obj = loadAnchor();
+  var editor = dom.editor_ui;
   
   var numLoading = 0; // number of async tasks waiting to load
   var startLoading = function() {
@@ -288,13 +235,11 @@ function LoadStateFromAnchor(onDone) {
     numLoading --;
     if (numLoading == 0) {
       CloseLoadingModal(); // done
-      onDone();
     }
   };
   
   for (var key in StorageHandlers) if (StorageHandlers.hasOwnProperty(key)) {
     StorageHandlers[key].load(startLoading, function(src) {
-      var editor = window.editor;
       editor.files = splitSrc(src);
       editor.rebuildFileUi(editor.files);
       doneLoading();
@@ -303,7 +248,7 @@ function LoadStateFromAnchor(onDone) {
   
   if (obj.hasOwnProperty("image")) {
     startLoading();
-    var canvas = document.getElementById('canvas');
+    var canvas = document.getElementsByClassName('render-canvas')[0];
     var img = new Image;
     img.crossOrigin = '';
     img.onload = function() {
@@ -314,12 +259,6 @@ function LoadStateFromAnchor(onDone) {
     };
     img.src = obj.image;
   }
-  
-  if (numLoading == 0) onDone(); // nothing to do, call immediately
-}
-
-function MarkEditorsSaved() {
-  window.editor.markClean();
 }
 
 $(function() {
@@ -343,18 +282,24 @@ function next_pot(n) {
   return n;
 }
 
-function RenderScene() {
+function RenderScene(jq) {
   $(window).trigger("startRender");
   
   // $('#console').empty();
   
-  var fullsrc = window.getFullSrc();
-  var files = window.getFiles();
+  var dom = jq[0];
+  var fullsrc = getFullSrc(dom.editor_ui);
+  var files = getFiles(dom.editor_ui);
   
   for (var i = 0; i < files.length; ++i) {
     var file = files[i];
     file.clear();
   }
+  
+  // dirty.. so dirty...
+  window.setErrorAt = function(loc1, loc2, text) {
+    setEditorErrorAt(dom.editor_ui, loc1, loc2, text);
+  };
   
   var jsource = "";
   try {
@@ -365,6 +310,8 @@ function RenderScene() {
     log("Could not compile scene: "+ex);
     return;
   }
+  
+  window.setErrorAt = null;
   
   var lines = jsource.split("\n");
   for (var i = 0; i < lines.length; ++i) {
@@ -377,7 +324,7 @@ function RenderScene() {
   div.append(document.createTextNode('> Rendering. (')).append(a).append(')').append(src).append('<br>');
   logJq(div);
   
-  var canvas = document.getElementById('canvas');
+  var canvas = jq.find('canvas')[0];
   
   var nwidth = Math.max(0, Math.min(4096, document.getElementById('width').value|0));
   var nheight = Math.max(0, Math.min(4096, document.getElementById('height').value|0));
@@ -407,16 +354,15 @@ function RenderScene() {
     return ctx.createImageData(width, height);
   });
   
-  var workset = new RenderWorkset(window.connection);
+  var workset = new RenderWorkset(jq, window.connection);
   if (workset.connection.local) {
-    $('#ConnectButton').hide();
-    $('#DisconnectButton').hide();
+    jq.find('#ConnectButton').hide();
+    jq.find('#DisconnectButton').hide();
   }
+  jq[0].workset = workset;
   
-  window.workset = workset;
-  
-  $('#RenderButton').hide();
-  $('#CancelButton').show();
+  jq.find('#RenderButton').hide();
+  jq.find('#CancelButton').show();
   
   var dw = canvas.width, dh = canvas.height;
   
@@ -477,45 +423,49 @@ function RenderScene() {
     if (workset.connection.local) {
       // stop our temporary threads
       workset.connection.shutdown();
-      $('#ConnectButton').show();
+      jq.find('#ConnectButton').show();
     }
-    CancelRender();
+    CancelRender(jq);
   };
   
   var extent = Math.max(next_pot(dw), next_pot(dh));
   var task = new Range(0, 0, 0, extent, extent, quality);
   workset.addTask(task);
   
-  $('#progress').empty().append(workset.progress_ui.dom);
+  jq.find('.progress-container').empty().append(workset.progress_ui.dom);
   
   workset.shuffle();
   
   workset.run();
 }
 
-function CancelRender() {
-  if (window.hasOwnProperty('workset')) {
-    window.workset.cancel();
-    delete window.workset;
+function CancelRender(jq) {
+  if (typeof jq == 'undefined') jq = $('.render_ui');
+  var dom = jq[0];
+  if (dom.hasOwnProperty('workset')) {
+    dom.workset.cancel();
+    delete dom.workset;
   }
-  $('#CancelButton').hide();
-  $('#RenderButton').show();
+  jq.find('#CancelButton').hide();
+  jq.find('#RenderButton').show();
 }
 
-function RenderOrCancel() {
-  if (window.hasOwnProperty('workset')) CancelRender();
-  else RenderScene();
+function RenderOrCancel(jq) {
+  var dom = jq[0];
+  if (dom.hasOwnProperty('workset')) CancelRender(jq);
+  else RenderScene(jq);
 }
 
-function Connect() {
-  window.connection = new ServerConnection;
+function Connect(jq) {
+  window.connection = new ServerConnection($('body'));
   window.connection.connect();
   $('#settings input').attr('disabled', 'disabled');
   log("Connected and waiting for work.");
 }
 
-function Disconnect() {
-  if (window.hasOwnProperty('workset')) CancelRender();
+function Disconnect(jq) {
+  var dom = jq[0];
+  if (dom.hasOwnProperty('workset')) CancelRender(jq);
   $('#settings input').removeAttr('disabled');
   window.connection.disconnect();
   window.connection = null;

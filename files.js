@@ -1,5 +1,13 @@
 'use strict';
 
+function currentSource() {
+  if (this.hasOwnProperty('editor')) {
+    return this.editor.getValue();
+  } else {
+    return this.src; // editor not loaded (uninitialized tab)
+  }
+}
+
 function splitSrc(src) {
   var files = [];
   
@@ -27,10 +35,10 @@ function splitSrc(src) {
           // throw ("duplicate file name '"+filename+"'");
         }
       }
-      files.push({name: filename, src: src, rowbase: rowbase, clear: function(){}});
+      files.push({name: filename, src: src, rowbase: rowbase, clear: function(){}, currentSource: currentSource});
     } else if (part.length) {
       src = part;
-      files.push({name: null, src: src, rowbase: rowbase, clear: function(){}});
+      files.push({name: null, src: src, rowbase: rowbase, clear: function(){}, currentSource: currentSource});
     }
     if (src) rowbase += src.split("\n").length;
   }
