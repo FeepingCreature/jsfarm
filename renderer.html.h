@@ -63,10 +63,15 @@
   editor.rebuildFileUi(editor.files);
   $(XSTR(#IDENT)).remove();
   setupCanvasUpload(canvas);
-  $(window).on('change_editor_theme', function(str) {
-    for (var i = 0; i < editor.files.length; ++i) {
-      var file = editor.files[i];
-      file.editor.setOption('theme', theme.editor_theme);
-    }
-  });
+  $(window).on('change_editor_theme', function(editor) {
+    return function(event, str) {
+      for (var i = 0; i < editor.files.length; ++i) {
+        var file = editor.files[i];
+        if (file.hasOwnProperty('editor')) {
+          file.editor.setOption('theme', str);
+          file.editor.refresh();
+        }
+      }
+    };
+  }(editor));
 </script>
