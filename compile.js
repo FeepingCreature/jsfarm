@@ -928,10 +928,10 @@ function sexpr_parse(context, parser, indentchecker) {
     text_post = parser.text;
     return makething({kind: "list", value: sexpr});
   }
-  var int = parser.gotInt();
-  if (int !== false) {
+  var num = parser.gotInt();
+  if (num !== false) {
     text_post = parser.text;
-    return makething({kind: "expr", type: "int", value: int});
+    return makething({kind: "expr", type: "int", value: num});
   }
   var number = parser.gotNumber();
   if (number !== false) {
@@ -1044,7 +1044,7 @@ function convert_closures(context, thing) {
   var var_wrap = function(body, entry, value) {
     var varname = {kind: "quote", value: {
       kind: "atom",
-      value: entry.rname,
+      value: entry.rname
     }};
     return list("%seq2_3",
       list("%set-framevar", "%stackframe", varname, value),
@@ -2475,7 +2475,7 @@ var reserved_identifiers_templ = {
   let1: 1, def: 1, set: 1,
   alias1: 1,
   lambda: 1, macro: 1,
-  if: 1, while: 1,
+  'if': 1, 'while': 1,
   "alloc-struct": 1, "make-struct": 1/*, "require": 1*/
 };
 
@@ -3736,7 +3736,7 @@ function setupSysctx() {
       kind: "function",
       ret: ret,
       args: structs_to_pointers(argtypes.value),
-      fail: thing.fail,
+      fail: thing.fail
     };
   });
   
@@ -3747,7 +3747,7 @@ function setupSysctx() {
       kind: "closure",
       ret: ret,
       args: structs_to_pointers(argtypes.value),
-      fail: thing.fail,
+      fail: thing.fail
     };
   });
   
@@ -4050,7 +4050,7 @@ function compile(files) {
     {kind: "expr", type: "int", value: "x"},
     {kind: "expr", type: "int", value: "y"},
     {kind: "expr", type: "int", value: "i"},
-    main_fn,
+    main_fn
   ];
   var flattened = flatten_array(null, trace_args);
   

@@ -1,0 +1,15 @@
+Options +ExecCGI
+AddHandler cgi-script cgi
+# DeflateAlterETag NoChange
+<FilesMatch "all.min.js">
+  Header append X-SourceMap: all.min.map
+</FilesMatch>
+<FilesMatch "main.min.js">
+  Header append X-SourceMap: main.min.map
+</FilesMatch>
+<FilesMatch ".(js|css|html)$">
+  Header append Vary: Accept-Encoding
+  SetOutputFilter DEFLATE
+  # see https://bz.apache.org/bugzilla/show_bug.cgi?id=45023
+  RequestHeader edit "If-None-Match" '^"((.*)-gzip)"$' '"$1", "$2"'
+</FilesMatch>

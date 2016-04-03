@@ -106,13 +106,13 @@ onmessage = function(e) {
         Math: Math,
         Int32Array: Int32Array,
         Float32Array: Float32Array,
-        Float64Array: Float64Array,
+        Float64Array: Float64Array
       };
       
       var errmsgs = [
         "Internal error: stub function called!",
         "Available memory exceeded!",
-        "Numeric error: NaN found!",
+        "Numeric error: NaN found!"
       ];
       
       var compiled = asmjs(stdlib, {
@@ -124,7 +124,7 @@ onmessage = function(e) {
         alert_: alert_,
         isFinite: isFinite,
         stackborder: 1024*512,
-        memory_limit: 1024*32768,
+        memory_limit: 1024*32768
       }, global_ram);
       
       cache_entry = fncache[fncache_id++];

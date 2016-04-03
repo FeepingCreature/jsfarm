@@ -2,11 +2,11 @@
 var css_default_before = [
   'css/bootstrap.min.css',
   'addon/lint/lint.css',
-  'css/codemirror.css',
+  'css/codemirror.css'
 ];
 
 var css_default_after = [
-  'css/site.css',
+  'css/site.css'
 ];
 
 var themes = {
@@ -15,7 +15,7 @@ var themes = {
     css: [
       'css/bootstrap-theme.min.css',
       'css/neat.css',
-      'css/site-light.css',
+      'css/site-light.css'
     ]
   },
   'dark': {
@@ -23,9 +23,9 @@ var themes = {
     css: [
       'css/bootstrap-cyborg.min.css',
       'css/lesser-dark.css',
-      'css/site-dark.css',
+      'css/site-dark.css'
     ]
-  },
+  }
 };
 
 function loadCss(url) {

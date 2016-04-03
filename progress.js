@@ -38,22 +38,22 @@ function text(node, content) {
   dom_queue.text(node, content);
 }
 
-var _progressBar = $('\
-<div>\
-  <div class="label annot annot-spacer" style="float:right; visibility: hidden;">\
-  </div>\
-  <div style="position: relative; display: flex;">\
-    <div class="label label-outside annot annot-after" style="position:absolute;top:0px;">\
-    </div>\
-    <div class="progress">\
-      <div class="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 100%;">\
-        <span class="sr-only"></span>\
-        <div class="label annot annot-inside"></div>\
-      </div>\
-    </div>\
-  </div>\
-  <div class="label label-outside eta"></div>\
-</div>')[0];
+var _progressBar = $(
+'<div>'+
+  '<div class="label annot annot-spacer" style="float:right; visibility: hidden;">'+
+  '</div>'+
+  '<div style="position: relative; display: flex;">'+
+    '<div class="label label-outside annot annot-after" style="position:absolute;top:0px;">'+
+    '</div>'+
+    '<div class="progress">'+
+      '<div class="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 100%;">'+
+        '<span class="sr-only"></span>'+
+        '<div class="label annot annot-inside"></div>'+
+      '</div>'+
+    '</div>'+
+  '</div>'+
+  '<div class="label label-outside eta"></div>'+
+'</div>')[0];
 
 var _progressBarCache = {};
 

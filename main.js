@@ -14,7 +14,7 @@ var editor_defaults = {
   gutters: ["error-gutter"],
   viewportMargin: Infinity,
   showCursorWhenSelecting: true,
-  lineWiseCopyCut: false, // why is this on by default??
+  lineWiseCopyCut: false // why is this on by default??
 };
 
 function getEditorCfg(jq) {
@@ -28,8 +28,8 @@ function getEditorCfg(jq) {
       },
       'Ctrl-Down': function(cm) {
         jq.find('#quality').val((jq.find('#quality').val()|0) / 2);
-      },
-    },
+      }
+    }
   });
 }
 
@@ -464,8 +464,10 @@ function Connect(jq) {
 }
 
 function Disconnect(jq) {
-  var dom = jq[0];
-  if (dom.hasOwnProperty('workset')) CancelRender(jq);
+  if (typeof jq !== 'undefined') {
+    var dom = jq[0];
+    if (dom.hasOwnProperty('workset')) CancelRender(jq);
+  }
   $('#settings input').removeAttr('disabled');
   window.connection.disconnect();
   window.connection = null;
