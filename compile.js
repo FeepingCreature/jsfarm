@@ -9,6 +9,12 @@ function RequireLoopError(msg) {
   this.message = msg;
 }
 
+/** @Constructor */
+function AlreadyInformedError(msg) {
+  this.name = 'AlreadyInformedError';
+  this.message = msg;
+}
+
 function fail(thing, info) {
   if (typeof thing == 'object' && thing && 'fail' in thing) thing.fail(info);
   if (typeof log != "undefined") log(info);
@@ -876,7 +882,7 @@ function sexpr_parse(context, parser, indentchecker) {
     
     window.setErrorAt(loc1, loc2, info);
     
-    throw info;
+    throw new AlreadyInformedError(info);
   };
   thing.fail = failHere;
   
@@ -954,7 +960,8 @@ function sexpr_parse(context, parser, indentchecker) {
     }
     return makething({kind: "atom", value: ident});
   }
-  parser.fail("unexpected input");
+  text_post = parser.text.slice(1);
+  failHere("unexpected input");
 }
 
 function match_op(thing, ident) {
@@ -1307,7 +1314,7 @@ function match_let1(thing, as_alias) {
    || bind.value.length != 2
    || bind.value[0].kind != "atom"
   )
-    fail(bind, "'"+myident+"' expects (name value) pair!");
+    fail(bind, "'"+myident+"' expects (name value) pair, not "+sexpr_dump(thing));
   
   return {
     name: bind.value[0].value,
@@ -1857,7 +1864,7 @@ function lambda_internal(context, thing, rest) {
         var argtype = js_type(args[i]);
         if (decltype.kind == "atom") decltype = decltype.value;
         if (JSON.stringify(decltype) != JSON.stringify(argtype)) {
-          fail(callthing.value[i+1], "wrong type: function typed as expecting "+JSON.stringify(decltype)+" but called with "+JSON.stringify(argtype)+"!");
+          fail(callthing, "wrong type: function typed as expecting "+JSON.stringify(decltype)+" but called with "+JSON.stringify(argtype)+"!");
         }
       }
     }
@@ -2938,7 +2945,7 @@ function JsFile() {
       }
     }
     log("how var of "+(typeof value)+" "+JSON.stringify(value));
-    throw "fuck";
+    throw ("cannot form var of "+JSON.stringify(value));
   };
   this.set = function(type, target, value) {
     this.addLine(target+" = "+js_tag(type, value)+";");
@@ -2972,7 +2979,12 @@ function defun(context, name, arity, fun) {
       if (arity != null && args.length != arity)
         fail(thing, "expect "+arity+" arguments for '"+name+"'");
       if (arity == null) {
-        return fun.call(this, context, thing, args);
+        try {
+          return fun.call(this, context, thing, args);
+        } catch (error) {
+          if (error instanceof AlreadyInformedError) throw error;
+          else fail(thing, error.toString());
+        }
       } else {
         var args2 = [];
         args2.push(context);
