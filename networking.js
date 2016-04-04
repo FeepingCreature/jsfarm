@@ -330,12 +330,17 @@ function ServerConnection(jq) {
   this.checkQueue = function() {
     var self = this;
     
-    function giveTaskToThread(wrapper, task) {
+    var giveTaskToThread = function(wrapper, task) {
       var msg = task.msg;
       var con = task.con;
       
       wrapper.onComplete = function(data) {
-        var rgbe_data = encode_rgbe11(data);
+        var rgbe_data = null;
+        if (con instanceof LoopbackConnection) {
+          rgbe_data = new Float32Array(data);
+        } else {
+          rgbe_data = encode_rgbe11(data);
+        }
         
         con.send({kind: 'done', channel: msg.channel});
         con.send({kind: 'result', channel: msg.channel, data: rgbe_data.buffer});
@@ -363,7 +368,7 @@ function ServerConnection(jq) {
       var message = $.extend({}, task.default_obj, msg.message);
       
       wrapper.giveWork(message);
-    }
+    };
     
     for (var i = 0; i < self.workers.length; ++i) {
       var wrapper = self.workers[i];
@@ -944,7 +949,11 @@ function RenderWorkset(jq, connection) {
               var data = null;
               var reactTaskResultReceived = function(msg) {
                 if (msg.kind == 'result') {
-                  data = decode_rgbe11(new Uint8Array(msg.data));
+                  if (con instanceof LoopbackConnection) {
+                    data = new Float32Array(msg.data);
+                  } else {
+                    data = decode_rgbe11(new Uint8Array(msg.data));
+                  }
                   // log_id(id, "task", channel, "received data", data.length);
                   advance();
                   return true;

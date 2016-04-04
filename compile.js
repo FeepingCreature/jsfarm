@@ -127,7 +127,7 @@ function coerce_int(arg) {
 
 function lit_float(thing) {
   if (thing.kind != "expr") return false;
-  return typeof thing.value == "number";
+  return typeof thing.value == "number" || thing.value == "Infinity";
 }
 
 function lit_int(thing) {
@@ -3330,7 +3330,11 @@ function setupSysctx() {
     if (base.kind == "list") throw "wtf";
     for (var i = 1; i < array.length; ++i) {
       if (base.kind == "pointer") {
-        base = js_get_at(base.type, base.base, 0);
+        if (base.hasOwnProperty('base')) {
+          base = js_get_at(base.type, base.base, 0);
+        } else {
+          base = base.value; // compiletime
+        }
       }
       // log("debug _element "+i+":", sexpr_dump(base));
       var key = array[i];
@@ -3765,7 +3769,6 @@ function setupSysctx() {
         if (context.js) {
           return value.withFixedType(context.js, type);
         } else {
-          // lazy?
           value.type = type;
           return value;
         }

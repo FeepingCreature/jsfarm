@@ -326,8 +326,8 @@ function RenderScene(jq) {
   
   var canvas = jq.find('canvas')[0];
   
-  var nwidth = Math.max(0, Math.min(4096, document.getElementById('width').value|0));
-  var nheight = Math.max(0, Math.min(4096, document.getElementById('height').value|0));
+  var nwidth = Math.max(0, Math.min(4096, jq.find('#width').val()|0));
+  var nheight = Math.max(0, Math.min(4096, jq.find('#height').val()|0))
   
   resizeCanvas(canvas, nwidth, nheight);
   
