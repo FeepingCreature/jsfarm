@@ -133,7 +133,7 @@ function coerce_int(arg) {
 
 function lit_float(thing) {
   if (thing.kind != "expr") return false;
-  return typeof thing.value == "number" || thing.value == "Infinity";
+  return typeof thing.value == "number";
 }
 
 function lit_int(thing) {
