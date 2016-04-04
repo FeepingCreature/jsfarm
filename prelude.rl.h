@@ -51,32 +51,30 @@
       (cons (quote (first list)) (quotelist (rest list))))))
 
 (def let_fun
-  (lambda (args)
-    ; TODO error cases for (= size 0)
-    (if (= (size args) 1)
-      (first1 args) ; plain body
+  (lambda (binds stmts)
+    (if (= (size binds) 0)
+      (cons 'seq stmts)
       (list
        'let1
-       (first args)
-       (let_fun (rest args))))))
+       (first binds)
+       (let_fun (rest binds) stmts)))))
 
 (def let
-  (macro (...)
-    (let_fun ...)))
+  (macro (binds ...)
+    (let_fun binds ...)))
 
 (def alias_fun
-  (lambda (args)
-    ; TODO error cases for (= size 0)
-    (if (= (size args) 1)
-      (first1 args) ; plain body
+  (lambda (binds stmts)
+    (if (= (size binds) 0)
+      (list 'seq stmts) ; seq body
       (list
        'alias1
-       (first args)
-       (alias_fun (rest args))))))
+       (first binds)
+       (alias_fun (rest binds) stmts)))))
 
 (def alias
-  (macro (...)
-    (alias_fun ...)))
+  (macro (binds ...)
+    (alias_fun binds ...)))
 
 (def require (macro (...) (cons '_require (quotelist ...))))
 (def : (macro (base ...) (cons '_element (cons base (quotelist ...)))))
@@ -85,11 +83,10 @@
 (def slice
   (lambda (from to args)
     (let
-      (from' from) (to' to) (args' args)
-      (res '())
-      (seq
-       (while (or (> from 0) (> to 0))
-         (if (> from 0)
+      ((from' from) (to' to) (args' args)
+       (res '()))
+      (while (or (> from 0) (> to 0))
+       (if (> from 0)
            (seq
             (set from (- from 1))
             (set to (- to 1))
@@ -98,35 +95,34 @@
             (set res (cons (first args) res))
             (set to (- to 1))
             (set args (rest args)))))
-       res))))
+      res)))
 
 (def for
   (macro (var from to body)
     `(seq
-      (let (,var ,from)
+      (let ((,var ,from))
         (while (< ,var ,to)
           (let
-            (_for_res ,body)
-            (seq
-             (set ,var (+ ,var 1))
-             _for_res)))))))
+            ((_for_res ,body))
+            (set ,var (+ ,var 1))
+            _for_res))))))
 
 (def splitfun
   (lambda (base args)
     (if (= (size args) 1)
       (first args)
       (let
-        (pivot (/ (size args) 2))
+       ((pivot (/ (size args) 2))
         (left (splitfun base (slice 0 pivot args)))
-        (right (splitfun base (slice pivot (size args) args)))
-        (list base left right)))))
+        (right (splitfun base (slice pivot (size args) args))))
+       (list base left right)))))
 
 ; TODO vectors?
 (def min2
   (macro (a b)
     `(let
-      (%a ,a)
-      (%b ,b)
+      ((%a ,a)
+       (%b ,b))
       (if (< %a %b) %a %b))))
 
 (def min
@@ -136,8 +132,8 @@
 (def max2
   (macro (a b)
     `(let
-      (%a ,a)
-      (%b ,b)
+      ((%a ,a)
+       (%b ,b))
       (if (> %a %b) %a %b))))
 
 (def max
