@@ -2494,8 +2494,7 @@ for (var key in reserved_identifiers_templ) if (reserved_identifiers_templ.hasOw
 function Context(sup, js) {
   if (sup && !js && sup.js) js = sup.js;
   
-  
-  this.sup = sup;
+  this.sup = sup || null;
   if (sup && sup.hasOwnProperty("types")) this.types = sup.types;
   this.js = js;
   this.namehint = "";
@@ -2518,7 +2517,7 @@ function Context(sup, js) {
         }
       }
       
-      if (context.sup) context = context.sup;
+      if (context.sup !== null) context = context.sup;
       else return;
     }
   };
@@ -2592,24 +2591,24 @@ function Context(sup, js) {
     if (thing.kind == "list") {
       var list = thing.value;
       if (!list.length) thing.fail("Cannot evaluate empty list!");
-      if (list[0].kind == "atom") {
+      if (list[0].kind === "atom") {
         var res = eval_builtin(this, thing);
         if (typeof res !== "undefined") return res;
       }
       var op = this.eval(list[0]);
-      if (op == null) {
+      if (op === null) {
         fail(list[0], "operator not found: "+sexpr_dump(list[0])+" at "+this.info());
       }
       if (can_call(op)) {
         var lex_ctx = new Context(this);
         var args = [];
         
-        if (op.kind == "closure-poly") {
+        if (op.kind === "closure-poly") {
           // log("closure-poly, push", JSON.stringify(op.base));
           args.push(op.base);
           op = op.fn;
         }
-        if (op.kind == "closure-pointer") {
+        if (op.kind === "closure-pointer") {
           // log("closure-pointer, push", JSON.stringify(op.base.base), "call", JSON.stringify(op.fnptr));
           args.push(op.base.base);
           op = op.fnptr;
@@ -2618,7 +2617,7 @@ function Context(sup, js) {
         for (var i = 1; i < list.length; ++i) {
           var arg = this.eval(list[i]);
           // structs are passed as pointers! (but only to user functions)
-          if (op.internal != true && arg && arg.kind == "struct" && arg.hasOwnProperty('base')) {
+          if (op.internal !== true && arg && arg.kind === "struct" && arg.hasOwnProperty('base')) {
             if (arg.base == null) throw "internal error";
             arg = {kind: "pointer", base: arg.base, type: arg.type};
           }
@@ -2627,7 +2626,7 @@ function Context(sup, js) {
         }
         
         var res = op.call(lex_ctx, thing, args);
-        if (typeof res == "undefined") res = null;
+        if (typeof res === "undefined") res = null;
         // log("| "+sexpr_dump(thing)+" => "+sexpr_dump(res));
         return res;
       }
