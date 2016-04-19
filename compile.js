@@ -16,7 +16,9 @@ function AlreadyInformedError(msg) {
 }
 
 function fail(thing, info) {
-  if (typeof thing == 'object' && thing && 'fail' in thing) thing.fail(info);
+  if (typeof thing == 'object' && thing
+    && 'fail' in thing && typeof thing.fail !== 'undefined'
+  ) thing.fail(info);
   if (typeof log != "undefined") log(info);
   throw new Error("broken "+typeof thing).stack;
 }
@@ -277,7 +279,7 @@ function js_get_at(type, base, offs) {
   
   if (type.kind == "vector") {
     var parts = [];
-    var elemsize = js_size({kind: "expr", type: type.base, value: "ERROR HERE js_size"});
+    var elemsize = js_type_size(type.base);
     for (var i = 0; i < type.size; ++i) {
       parts.push(js_get_at(type.base, base, offs + elemsize * i));
     }
@@ -288,6 +290,9 @@ function js_get_at(type, base, offs) {
   if (typeof type == "object") {
     if (type.kind == "pointer") {
       return {kind: "pointer", base: js_get_at("int", base, offs), type: type.type};
+    }
+    if (type.kind == "array-type") {
+      return new RLArray(type, js_get_at("int", base, offs), js_get_at("int", base, offs + 4));
     }
     if (type.kind == "struct") {
       var value = {};
@@ -318,6 +323,9 @@ function js_get_at(type, base, offs) {
         res.base.base = js_get_at("int", base, offs + 0);
       }
       return res;
+    }
+    if (type.kind == "function-poly") {
+      return type;
     }
     if (type.kind == "closure") {
       return new ClosurePointer(
@@ -427,6 +435,9 @@ function flatten(base, thing) {
     }
     return vars;
   }
+  if (thing.kind == "array") {
+    return [thing.ptr, thing.size];
+  }
   if (thing.kind == "closure-pointer") {
     return [thing.base.base, thing.fnptr.offset];
   }
@@ -456,6 +467,9 @@ function flatten_type(type) {
     var types = [];
     for (var i = 0; i < type.size; ++i) types.push(type.base);
     return types;
+  }
+  if (type.kind == "array-type") {
+    return ["int", "int"]; // ptr, size
   }
   if (type.kind == "closure-poly") {
     if (type.base.hasOwnProperty("base")) return ["int"]; // base pointer
@@ -489,6 +503,8 @@ function get_type_signature(thing) {
   if (thing.kind == "expr") return get_type_signature(thing.type);
   if (thing.kind == "vector" && 'type' in thing) return get_type_signature(thing.type);
   if (thing.kind == "vector") return "vector_"+thing.size+"_"+thing.base;
+  if (thing.kind == "array") return get_type_signature(thing.type);
+  if (thing.kind == "array-type") return "array_"+get_type_signature(thing.base);
   if (thing.kind == "pointer" && thing.type.kind == "struct") {
     return "p_" + get_type_signature(thing.type);
   }
@@ -607,6 +623,11 @@ function reconstruct_by_types(js, types, vars) {
       array.push({kind: "vector", type: type, value: names});
       continue;
     }
+    if (type.kind == "array-type") {
+      var comps = take(2);
+      array.push(new RLArray(type, comps[0], comps[1]));
+      continue;
+    }
     fail(null, "unimplemented: reconstruct "+JSON.stringify(type));
   }
   if (vars.length) throw "reconstruct failure: vars left over!";
@@ -614,13 +635,11 @@ function reconstruct_by_types(js, types, vars) {
 }
 
 function js_type(thing) {
-  if (thing.kind == "expr") return thing.type;
-  if (thing.kind == "struct") return thing.type;
+  if (thing.kind == "expr" || thing.kind == "struct"
+    || thing.kind == "vector" || thing.kind == "array"
+    || thing.kind == "function" || thing.kind == "closure"
+  ) return thing.type;
   if (thing.kind == "pointer") return {kind: "pointer", type: thing.type};
-  if (thing.kind == "vector") return thing.type;
-  if (thing.kind == "function" || thing.kind == "closure") {
-    return thing.type;
-  }
   if (thing.kind == "frame") return thing; // eesh
   if (thing.kind == "function-poly" || thing.kind == "closure-poly"
    || thing.kind == "function-pointer" || thing.kind == "closure-pointer") {
@@ -630,19 +649,28 @@ function js_type(thing) {
   fail(thing, "what's its type?? "+JSON.stringify(thing));
 }
 
+function js_type_size(type) {
+  if (type == "float" || type == "int" || type == "bool") return 4;
+  if (typeof type == "object") {
+    if (type.kind == "vector") {
+      var res = js_type_size(type.base) * type.size;
+      if (res == 12) res = 16; // vec3 are vec4-sized for 16-alignment reasons
+      return res;
+    }
+    if (type.kind == "struct") return type.size;
+    if (type.kind == "array-type") {
+      return 8; // two pointers
+    }
+  }
+  fail(type, "what's this type's size?? "+typeof type+" "+JSON.stringify(type));
+}
+
 function js_size(thing) {
-  if (thing.kind == "expr") {
-    var type = thing.type;
-    if (type == "float" || type == "int" || type == "bool") return 4;
-  }
+  if (thing.kind == "expr" || thing.kind == "struct"
+    || thing.kind == "vector" || thing.kind == "array"
+    || thing.kind == "function" || thing.kind == "closure"
+  ) return js_type_size(thing.type);
   if (thing.kind == "pointer") return 4;
-  if (thing.kind == "struct") return thing.type.size;
-  if (thing.kind == "vector") {
-    var res = js_size({kind: "expr", type: thing.type.base, value: "ERROR HERE js_size"}) * thing.type.size;
-    if (res == 12) res = 16; // vec3 are vec4-sized for alignment reasons
-    return res;
-  }
-  // if (thing.kind == "function") return 4; // function table offset
   if (thing.kind == "closure-pointer") return 8; // function table offset, heap offset
   if (thing.kind == "function-poly") return 0; // poly function cannot be stored, so encode in type
   if (thing.kind == "closure-poly") {
@@ -657,26 +685,17 @@ function js_size(thing) {
 // turn an array of primitives into a structurally
 // equivalent reconstruction of a compound expression
 function reconstruct(js, thing, array) {
-  var type = null;
-  if (thing.kind == "vector") type = "vector";
-  else if (thing.kind == "expr") type = thing.type;
-  else if (thing.kind == "struct") type = "struct";
-  else if (thing.kind == "frame") type = "frame";
-  else if (thing.kind == "pointer") type = "pointer";
-  else if (thing.kind == "closure") type = "closure";
-  else if (thing.kind == "closure-poly") type = "closure-poly";
-  else if (thing.kind == "closure-pointer") type = "closure-pointer";
-  else if (thing.kind == "function-poly") type = "function-poly";
-  else fail(thing, "how to reconstruct "+typeof thing+" "+thing.kind);
-  
-  if (type == "float" || type == "int" || type == "bool") {
-    if (array.length < 1) fail(thing, "reconstruct:1 internal error");
-    if (array[0].kind != "expr" || array[0].type != type) throw ("can't reconstruct "+type+" from "+JSON.stringify(array[0]));
-    return {
-      value: array[0],
-      rest: array.slice(1)};
+  if (thing.kind == "expr") {
+    var type = thing.type;
+    if (type == "float" || type == "int" || type == "bool") {
+      if (array.length < 1) fail(thing, "reconstruct:1 internal error");
+      if (array[0].kind != "expr" || array[0].type != type) throw ("can't reconstruct "+type+" from "+JSON.stringify(array[0]));
+      return {
+        value: array[0],
+        rest: array.slice(1)};
+    }
   }
-  if (type == "vector") {
+  if (thing.kind == "vector") {
     if (array.length < thing.type.size) fail(thing, "reconstruct:2 internal error");
     var vars = array.slice(0, thing.type.size);
     for (var i = 0; i < vars.length; ++i) {
@@ -687,7 +706,11 @@ function reconstruct(js, thing, array) {
       value: mkVec_direct(thing.type, vars),
       rest: array.slice(thing.type.size)};
   }
-  if (type == "frame") {
+  if (thing.kind == "array") {
+    var res = new RLArray(thing.type, array[0], array[1]);
+    return { value: res, rest: array.slice(2) };
+  }
+  if (thing.kind == "frame") {
     if (!thing.hasOwnProperty("base")) {
       // the interpreted-to-compiled case
       return {value: thing, rest: array};
@@ -702,14 +725,14 @@ function reconstruct(js, thing, array) {
       rest: array.slice(1)
     };
   }
-  if (type == "closure") {
+  if (thing.kind == "closure") {
     if (!thing.hasOwnProperty("value")) {
       // interpreted-to-compiled
       return {value: thing, rest: array};
     }
     fail(thing, "unimplemented: runtime closure");
   }
-  if (type == "closure-pointer") {
+  if (thing.kind == "closure-pointer") {
     var res = flatclone(thing);
     res.fnptr = flatclone(res.fnptr);
     
@@ -718,11 +741,11 @@ function reconstruct(js, thing, array) {
     if (!res.fnptr.offset) throw "what";
     return {value: res, rest: array.slice(2)};
   }
-  if (type == "function-poly") {
+  if (thing.kind == "function-poly") {
     var res = flatclone(thing);
     return {value: res, rest: array};
   }
-  if (type == "closure-poly") {
+  if (thing.kind == "closure-poly") {
     var res = flatclone(thing);
     res.base = flatclone(thing.base);
     if (res.base.hasOwnProperty("base")) {
@@ -732,10 +755,10 @@ function reconstruct(js, thing, array) {
       return {value: res, rest: array};
     }
   }
-  if (type == "struct") {
+  if (thing.kind == "struct") {
     fail(thing, "internal issue - cannot pass struct as parameter");
   }
-  if (type == "pointer" && thing.type.kind == "struct") {
+  if (thing.kind == "pointer" && thing.type.kind == "struct") {
     var base = array[0], rest = array.slice(1);
     var type = thing.type;
     
@@ -744,7 +767,7 @@ function reconstruct(js, thing, array) {
     return { rest: rest, value: value };
   }
   
-  fail(thing, "unimplemented: reconstruct "+type);
+  fail(thing, "unimplemented: reconstruct "+thing.kind);
 }
 
 function reconstruct_array(js, args, array) {
@@ -1488,6 +1511,9 @@ function copy(js, thing) {
   if (thing.kind == "struct" && thing.hasOwnProperty("base")) {
     return js_get_at(thing.type, copy(js, thing.base), 0);
   }
+  if (thing.kind == "array") {
+    return new RLArray(thing.type, copy(js, thing.ptr), copy(js, thing.size));
+  }
   if (thing.kind == "frame" && thing.hasOwnProperty("base")) {
     var res = flatclone(thing);
     res.base = copy(js, res.base);
@@ -1609,6 +1635,9 @@ function js_set(js, thing, target, value) {
     }
     return;
   }
+  if (target.kind == "function-poly" && value.kind == "function-poly") {
+    return; // encoded in signature, no value
+  }
   if (target.kind == "closure-poly" && value.kind == "closure-poly") {
     if (JSON.stringify(target.base.entries) != JSON.stringify(value.base.entries))
       fail(thing, "incompatible/mismatched poly closures (from different lexical locations) - cannot assign. maybe typehint?");
@@ -1634,6 +1663,14 @@ function js_set(js, thing, target, value) {
     for (var i = 0; i < target.type.size; ++i) {
       js.set(target.type.base, target.value[i], value.value[i]);
     }
+    return;
+  }
+  if (target.kind == "array" && value.kind == "array") {
+    if (JSON.stringify(target.type) != JSON.stringify(value.type)) {
+      fail(thing, "cannot assign: array type mismatch, "+JSON.stringify(target.type)+" != "+JSON.stringify(value.type));
+    }
+    js_set(js, thing, target.ptr, value.ptr);
+    js_set(js, thing, target.size, value.size);
     return;
   }
   fail(thing, "unimplemented: "+sexpr_dump(thing)+" -- "+JSON.stringify(target)+" = "+JSON.stringify(value));
@@ -1696,6 +1733,14 @@ function generic_return(js, thing) {
       js.set(thing.type.base, rplaces[i], thing.value[i]);
     }
     
+    js.set("int", "SP", "BP");
+    if (STACK_DEBUG) js.addLine("check_end();");
+    js.addLine("return;");
+    return thing.type;
+  }
+  else if (thing.kind == "array") {
+    js.set("int", "_r_arr_ptr", thing.ptr.value);
+    js.set("int", "_r_arr_sz", thing.size.value);
     js.set("int", "SP", "BP");
     if (STACK_DEBUG) js.addLine("check_end();");
     js.addLine("return;");
@@ -1792,6 +1837,14 @@ function build_js_call(thing, js, fname, ret_type, flat_args) {
       ret_type,
       {kind: "frame", base: {kind: "expr", type: "int", value: "_cp_base"}},
       {kind: "expr", type: "int", value: "_cp_offset"}
+    ));
+  }
+  else if (ret_type.kind == "array-type") {
+    js.addLine(call+";");
+    ret_value = copy(js, new RLArray(
+      ret_type,
+      {kind: "expr", type: "int", value: "_r_arr_ptr"},
+      {kind: "expr", type: "int", value: "_r_arr_sz"}
     ));
   }
   else fail(thing, "2 how return "+JSON.stringify(ret_type));
@@ -2340,6 +2393,33 @@ function match_makestruct(thing, location) {
   };
 }
 
+function match_makearray(thing, location) {
+  if (thing.kind != "list") return null;
+  var array = thing.value;
+  if (array.length == 0) return null;
+  if (array[0].kind != "atom") return null;
+  var name = array[0].value;
+  if (location == "stack") {
+    if (name != "make-array") return null;
+  } else if (location == "heap") {
+    if (name != "alloc-array") return null;
+  } else if (location == null) {
+    if (name == "make-array") location = "stack";
+    else if (name == "alloc-array") location = "heap";
+    else return null;
+  } else throw ("internal error - what is "+location);
+  var args = array.slice(1);
+  if (args.length != 2) fail(thing, "expected two parameters: type and size");
+  var type = args[0];
+  var size = args[1];
+  
+  return {
+    type: type,
+    size: size,
+    location: location
+  };
+}
+
 function make_struct(context, thing, names, values) {
   var values_obj = {};
   for (var i = 0; i < names.length; ++i) {
@@ -2450,6 +2530,49 @@ function makestruct_internal(context, thing, rest, location) {
   return make_struct_on(location, context, thing, names_arr, values_arr);
 }
 
+function RLArrayType(base) {
+  this.kind = "array-type";
+  this.base = base;
+}
+
+function RLArray(type, ptr, size) {
+  if (type.kind != "array-type") throw "bad type for array";
+  if (ptr.type != "int") throw "bad ptr for array";
+  if (size.type != "int") throw "bad size for array";
+  this.kind = "array";
+  this.type = type;
+  this.ptr = ptr;
+  this.size = size;
+}
+
+function makearray_internal(context, thing, rest, location) {
+  if (!rest.length) fail(thing, "make-struct expected list");
+  
+  var makearray_props = match_makearray(thing, location);
+  
+  var type = context.eval(makearray_props.type);
+  var typesize = js_type_size(type);
+  var size = context.eval(makearray_props.size);
+  
+  if (size.type != "int") fail(thing, "invalid size for array: "+JSON.stringify(size.type));
+  
+  var arrtype = new RLArrayType(type);
+  
+  if (!context.js) fail("TODO make-array at compiletime");
+  
+  var total_len = context.js.mkVar(js_op("int", "*", js_tag(size), typesize), "int", "total_len");
+  
+  var arr_ptr = null;
+  if (location == "stack") {
+    context.js.set("int", "SP", js_op("int", "-", "SP", js_tag(total_len)));
+    arr_ptr = context.js.mkVar("SP", "int", "array_base");
+  } else if (location == "heap") {
+    arr_ptr = context.js.mkVar("malloc("+js_tag(total_len)+")", "int", "array_base");
+  } else throw ("internal error "+location);
+  
+  return new RLArray(arrtype, arr_ptr, size);
+}
+
 function can_call(thing) {
   return thing.kind == "function-poly" || thing.kind == "closure-poly" || thing.kind == "closure-pointer";
 }
@@ -2474,6 +2597,9 @@ function eval_builtin(context, thing) {
   
   if (name == "make-struct") return makestruct_internal(context, thing, rest, "stack");
   if (name == "alloc-struct") return makestruct_internal(context, thing, rest, "heap");
+  
+  if (name == "make-array") return makearray_internal(context, thing, rest, "stack");
+  if (name == "alloc-array") return makearray_internal(context, thing, rest, "heap");
 }
 
 // dirty microoptimizations
@@ -2483,7 +2609,8 @@ var reserved_identifiers_templ = {
   alias1: 1,
   lambda: 1, macro: 1,
   'if': 1, 'while': 1,
-  "alloc-struct": 1, "make-struct": 1/*, "require": 1*/
+  "alloc-struct": 1, "make-struct": 1,/* "require": 1,*/
+  "alloc-array": 1, "make-array": 1
 };
 
 for (var key in reserved_identifiers_templ) if (reserved_identifiers_templ.hasOwnProperty(key)) {
@@ -2653,6 +2780,20 @@ function Context(sup, js) {
   */
 }
 
+function js_return_type(type) {
+  if (type == "int" || type == "float" || type == "bool" || type == "void") return type;
+  if (type.kind == "closure" || type.kind == "vector" || type.kind == "array") {
+    return "void"; // passed in globals
+  }
+  if (type.kind == "pointer") {
+    return "int";
+  }
+  if (type.kind == "struct") {
+    fail(null, "bad return type (struct)");
+  }
+  fail(null, "unimplemented: js_return_type("+JSON.stringify(type)+")");
+}
+
 function emitStubFunction(js, type) {
   var flattened = flatten_type_array(type.args);
   var sign = flattened.signature;
@@ -2673,9 +2814,11 @@ function emitStubFunction(js, type) {
   
   js.addLine("error(0);");
   
-  if (type.ret == "void") { js.addLine("return;"); }
-  else if (type.ret == "int") { js.addLine("return 0;"); }
-  else if (type.ret == "float") { js.addLine("return 0.0;"); }
+  var js_type = js_return_type(type.ret);
+  
+  if (js_type == "void") { js.addLine("return;"); }
+  else if (js_type == "int") { js.addLine("return 0;"); }
+  else if (js_type == "float") { js.addLine("return 0.0;"); }
   else fail(null, "unimplemented: stub return type "+JSON.stringify(type.ret));
   
   js.unindent();
@@ -2684,20 +2827,6 @@ function emitStubFunction(js, type) {
   js.add("functions", js.popSection("function"));
   
   return fn;
-}
-
-function js_return_type(type) {
-  if (type == "int" || type == "float" || type == "bool" || type == "void") return type;
-  if (type.kind == "closure" || type.kind == "vector") {
-    return "void"; // passed in globals
-  }
-  if (type.kind == "pointer") {
-    return "int";
-  }
-  if (type.kind == "struct") {
-    fail(null, "bad return type (struct)");
-  }
-  fail(null, "unimplemented: js_return_type("+JSON.stringify(type)+")");
 }
 
 /** @constructor */
@@ -3124,10 +3253,15 @@ function setupSysctx() {
     return {kind: "quote", value: value, fail: thing.fail};
   });
   defun(sysctx, "size", 1, function(context, thing, value) {
-    if (value.kind != "list") {
-      fail(thing, "'size' expected list as parameter");
+    if (value.kind != "list" && value.kind != "array") {
+      fail(thing, "'size' expected list or array as parameter, not '"+sexpr_dump(value)+"'");
     }
-    return {kind: "expr", type: "int", value: value.value.length};
+    if (value.kind == "list") {
+      return {kind: "expr", type: "int", value: value.value.length};
+    }
+    if (value.kind == "array") {
+      return value.size;
+    }
   });
   defun(sysctx, "first", "1", function(context, thing, value) {
     if (!value) fail(thing, "argument is null");
@@ -3138,6 +3272,12 @@ function setupSysctx() {
   });
   defun(sysctx, "list?", "1", function(context, thing, value) {
     return {kind: "expr", type: "bool", value: value.kind == "list"};
+  });
+  defun(sysctx, "vector?", "1", function(context, thing, value) {
+    return {kind: "expr", type: "bool", value: value.kind == "vector"};
+  });
+  defun(sysctx, "array?", "1", function(context, thing, value) {
+    return {kind: "expr", type: "bool", value: value.kind == "array"};
   });
   defun(sysctx, "struct?", "1", function(context, thing, value) {
     return {
@@ -3247,11 +3387,16 @@ function setupSysctx() {
     var offset = frame.offset.value;
     
     // log("debug: set at", offset, size, "to", sexpr_dump(value));
-    var target = js_get_at(type, frame.base, offset);
-    js_set(context.js, thing, target, value);
-    
-    frame.entries[name] = {type: type, offset: offset};
-    frame.offset.value += size;
+    try {
+      var target = js_get_at(type, frame.base, offset);
+      js_set(context.js, thing, target, value);
+      
+      frame.entries[name] = {type: type, offset: offset};
+      frame.offset.value += size;
+    } catch (error) {
+      if (error instanceof AlreadyInformedError) throw error;
+      else fail(thing, error.toString());
+    }
   });
   defun(sysctx, "%unset-framevar", 2, function(context, thing, frame, name) {
     if (name.kind != "atom") fail(name, "name is supposed to be an atom - internal error");
@@ -3408,6 +3553,23 @@ function setupSysctx() {
       }
     }
     return base;
+  });
+  defun(sysctx, "index", 2, function(context, thing, array, index) {
+    if (array.kind != "array") {
+      fail(thing, "first parameter to 'index' must be an array, not a "+JSON.stringify(array));
+    }
+    if (index.kind != "expr" || index.type != "int") {
+      fail(thing, "second parameter to 'index' must be a number, not a "+JSON.stringify(index));
+    }
+    var ptr = array.ptr;
+    var base = array.type.base;
+    var basesize = js_type_size(base);
+    var offset_ptr = context.js.mkVar(
+      js_op("int", "+", js_tag(ptr), js_op("int", "*", basesize, js_tag(index))),
+      "int",
+      "offset_ptr"
+    );
+    return js_get_at(base, offset_ptr, 0);
   });
   defun(sysctx, "list", function(context, thing, array) {
     var fail = null;
@@ -3733,7 +3895,9 @@ function setupSysctx() {
   });
   
   defun(sysctx, "typeof", 1, function(context, thing, value) {
-    if (value.kind == "struct") return value.type;
+    if (value.kind == "struct" || value.kind == "vector" || value.kind == "array") {
+      return value.type;
+    }
     if (value.kind == "pointer") return {kind: "pointer", type: value.type};
     fail(thing, "unimplemented: typeof "+JSON.stringify(value));
   });
@@ -3797,6 +3961,7 @@ function setupSysctx() {
   });
   
   sysctx.add("Infinity", {kind: "expr", type: "float", value: "Infinity"});
+  sysctx.add("-Infinity", {kind: "expr", type: "float", value: "-Infinity"});
   sysctx.add("dw", {kind: "expr", type: "int", value: "dw"});
   sysctx.add("dh", {kind: "expr", type: "int", value: "dh"});
   sysctx.add("di", {kind: "expr", type: "int", value: "di"});
@@ -3861,7 +4026,10 @@ function compile(files) {
     "\n"+
     // scratch space for closure pointer return
     "var _cp_base = 0;\n"+
-    "var _cp_offset = 0;\n");
+    "var _cp_offset = 0;\n"+
+    // scratch space for array return
+    "var _r_arr_ptr = 0;\n"+
+    "var _r_arr_sz = 0;\n");
   jsfile.openSection("variables");
   
   // stack pointer
