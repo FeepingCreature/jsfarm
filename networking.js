@@ -749,6 +749,8 @@ function RenderWorkset(jq, connection) {
         }
         // log(id, "got connection "+con);
         
+        var num_errors = 0;
+        
         var firstExchangeOnConnection = true;
         
         var tasksInFlight = Object.create(null);
@@ -1083,8 +1085,12 @@ function RenderWorkset(jq, connection) {
                     if (msg.kind == 'error') {
                       // late rejection
                       if (msg.nature == 'fatal') {
-                        log(id, ": task", channel, "failed:", msg.fatal, msg.error, "(3)");
+                        log(id, ": task", channel, "failed:", msg.fatal, msg.error, "(3, "+num_errors+")");
                         failTask(task);
+                        if (num_errors++ > 2) {
+                          log(id, ": giving up on this peer");
+                          con.close();
+                        }
                       } else {
                         // log(id, ": task", channel, "kicked from queue, was", task.state);
                         reenqueueTask(task, msg.nature); // recoverable, like queue kicks
