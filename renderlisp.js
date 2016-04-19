@@ -18,7 +18,7 @@
 CodeMirror.defineMode("renderlisp", function () {
     var BUILTIN = "builtin", COMMENT = "comment", STRING = "string",
         ATOM = "atom", NUMBER = "number", BRACKET = "bracket";
-    var INDENT_WORD_SKIP = 2;
+    var INDENT_WORD_SKIP = 1;
 
     function makeKeywords(str) {
         var obj = {}, words = str.split(" ");
@@ -27,7 +27,10 @@ CodeMirror.defineMode("renderlisp", function () {
     }
 
     var keywords = makeKeywords("type field require while and or cond def if lambda local-lambda macro let abs acos asin atan cons cos current-input-port current-output-port denominator display eof-object? eq? equal? eqv? eval even? exact->inexact exact? exp expt #f floor force gcd imag-part inexact->exact inexact? input-port? integer->char integer? interaction-environment lcm length list list->string list->vector list-ref list-tail list? load log magnitude make-polar make-rectangular make-string make-vector max member memq memv min modulo negative? newline not null-environment null? number->string number? numerator odd? open-input-file open-output-file output-port? pair? peek-char port? positive? procedure? quasiquote quote quotient rational? rationalize read read-char real-part real? remainder reverse round scheme-report-environment set! set-car! set-cdr! sin sqrt string string->list string->number string->symbol string-append string-ci<=? string-ci<? string-ci=? string-ci>=? string-ci>? string-copy string-fill! string-length string-ref string-set! string<=? string<? string=? string>=? string>? string? substring symbol->string symbol? #t tan transcript-off transcript-on truncate values vector vector->list vector-fill! vector-length vector-ref vector-set! with-input-from-file with-output-to-file write write-char zero?");
-    var indentKeys = makeKeywords("def let lambda macro if while type for");
+    // var indentKeys = makeKeywords("def let lambda macro if while type for");
+    
+    // keywords known to not have a privileged tail
+    var notIndentKeys = makeKeywords("+ - * / % ^ : and or");
 
     function stateStack(indent, type, prev) { // represents a state stack object
         this.indent = indent;
@@ -192,7 +195,7 @@ CodeMirror.defineMode("renderlisp", function () {
                             keyWord += letter;
                         }
 
-                        if (keyWord.length > 0 && indentKeys.propertyIsEnumerable(keyWord)) { // indent-word
+                        if (keyWord.length > 0 && !notIndentKeys.propertyIsEnumerable(keyWord)) { // indent-word
 
                             pushStack(state, indentTemp + INDENT_WORD_SKIP, ch);
                         } else { // non-indent word
