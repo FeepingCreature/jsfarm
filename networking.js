@@ -124,13 +124,15 @@ function RobinQueue(limit) {
 }
 
 /** @constructor */
-function Range(x_from, y_from, i_from, x_to, y_to, i_to) {
+function Range(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to) {
   this.x_from = x_from;
   this.y_from = y_from;
   this.i_from = i_from;
+  this.t_from = t_from;
   this.x_to = x_to;
   this.y_to = y_to;
   this.i_to = i_to;
+  this.t_to = t_to;
   this.PACK_AS_OBJECT = null;
 }
 
@@ -146,7 +148,9 @@ function WorkTask(range, array_id) {
   this.message = range;
   this.sclone = function() {
     var msg = this.message;
-    return new WorkTask(new Range(msg.x_from, msg.y_from, msg.i_from, msg.x_to, msg.y_to, msg.i_to), null);
+    return new WorkTask(new Range(
+      msg.x_from, msg.y_from, msg.i_from, msg.t_from,
+      msg.x_to, msg.y_to, msg.i_to, msg.t_to), null);
   };
 }
 
@@ -264,7 +268,7 @@ function LoopbackConnection() {
 }
 
 /** @constructor */
-function LoopBack() {
+function Loopback() {
   var
     client_half = new LoopbackConnection,
     server_half = new LoopbackConnection;
@@ -527,7 +531,7 @@ function ServerConnection(jq) {
   };
   this.isLocal = function() {
     this.local = true;
-    this.peerjs = new LoopBack();
+    this.peerjs = new Loopback();
   };
   this.startup = function() {
     var self = this;
@@ -545,7 +549,9 @@ function ServerConnection(jq) {
   };
   this.shutdown = function() {
     while (this.workers.length) {
-      this.workers.pop().worker.terminate();
+      var wrapper = this.workers.pop();
+      if (wrapper.state == 'busy') wrapper.setState('idle');
+      wrapper.worker.terminate();
     }
     jq.find('#WorkerInfo').hide();
     jq.find('#WorkerInfo .workerlist').empty();
@@ -649,7 +655,7 @@ function RenderWorkset(jq, connection) {
   
   this.tasks = [];
   this.task_defaults = {};
-  this.progress_ui = new ProgressUI(jq, function() { return self.task_defaults.dw * self.task_defaults.dh * self.task_defaults.di; });
+  this.progress_ui = new ProgressUI(jq, function() { return self.task_defaults.dw * self.task_defaults.dh * self.task_defaults.di * self.task_defaults.dt; });
   
   this.peerlist = [];
   this.peerlist_last_updated = null;
@@ -701,8 +707,13 @@ function RenderWorkset(jq, connection) {
     };
     
     var recheckPeers = function() {
-      // log("relisting peers");
-      self.connection.peerjs.listAllPeers(function(peers) {
+      var peerjs = self.connection.peerjs;
+      if (!(peerjs instanceof Loopback) && !peerjs.id) {
+        log("not relisting because we're disconnected (weird state)");
+        return;
+      }
+      // log("relisting peers on", self.connection.peerjs.id);
+      peerjs.listAllPeers(function(peers) {
         peerlist = peers;
         callBackWithNewPeers();
       });
@@ -773,7 +784,7 @@ function RenderWorkset(jq, connection) {
           self.onTaskDone(msg, resultInfo.data);
           self.progress_ui.onTaskCompleted(task);
           
-          var samples_rendered = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from) * (msg.i_to - msg.i_from);
+          var samples_rendered = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from) * (msg.i_to - msg.i_from) * (msg.t_to - msg.t_from);
           var time_taken = timer.elapsed() / 1000;
           self.getPerfEstimatorFor(id).feedback(samples_rendered, time_taken);
           
@@ -1092,9 +1103,11 @@ function RenderWorkset(jq, connection) {
                         x_from: task.message.x_from,
                         y_from: task.message.y_from,
                         i_from: task.message.i_from,
+                        t_from: task.message.t_from,
                         x_to: task.message.x_to,
                         y_to: task.message.y_to,
                         i_to: task.message.i_to,
+                        t_to: task.message.t_to,
                         data: data
                       };
                       
@@ -1232,7 +1245,7 @@ function RenderWorkset(jq, connection) {
     var self = this, msg = task.message;
     var dw = this.task_defaults.dw, dh = this.task_defaults.dh;
     var task_pixels = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from);
-    var task_samples = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from) * (msg.i_to - msg.i_from);
+    var task_samples = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from) * (msg.i_to - msg.i_from) * (msg.t_to - msg.t_from);
     var estim_seconds_for_task = this.getPerfEstimatorFor(id).estimate(task_samples);
     var max_seconds_per_task = 10;
     var must_split = msg.x_to > dw || msg.y_to > dh; // invalid as-is

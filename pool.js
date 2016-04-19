@@ -45,7 +45,8 @@ onmessage = function(e) {
     var x_from = e.data.x_from, x_to = e.data.x_to;
     var y_from = e.data.y_from, y_to = e.data.y_to;
     var i_from = e.data.i_from, i_to = e.data.i_to;
-    var dw = e.data.dw, dh = e.data.dh, di = e.data.di;
+    var t_from = e.data.t_from, t_to = e.data.t_to;
+    var dw = e.data.dw, dh = e.data.dh, di = e.data.di, dt = e.data.dt;
     var s2src = e.data.source;
     
     if (dw > 4096 || dh > 4096 || dw < 0 || dh < 0) throw "size limits exceeded";
@@ -57,7 +58,7 @@ onmessage = function(e) {
     if (!is_pot(width) || !is_pot(height)) throw "render range must be power-of-two sized";
     if (width != height) throw "render range must be quadratic";
     
-    var settings = {dw: dw, dh: dh, di: di};
+    var settings = {dw: dw, dh: dh, di: di, dt: dt};
     
     var cache_entry = null;
     for (var i = 0; i < fncache.length; ++i) {
@@ -76,16 +77,16 @@ onmessage = function(e) {
       var config = {};
       
       // i is ignored - we make the safe assumption that you'll just pass every i in the range once
-      var hit = function(x, y, i, r, g, b) {
+      var hit = function(x, y, i, t, r, g, b) {
         config.count++;
         
         var width = config.x_to - config.x_from;
-        var t = Date.now();
-        if (t - config.last_t > 1000) {
+        var tm = Date.now();
+        if (tm - config.last_tm > 1000) {
           var height = config.y_to - config.y_from;
           var progress = config.count / (width * height);
           postMessage({kind: "progress", progress: progress});
-          config.last_t = t;
+          config.last_tm = tm;
         }
         
         var base = (y - config.y_from) * width + (x - config.x_from);
@@ -119,6 +120,7 @@ onmessage = function(e) {
         dw: dw,
         dh: dh,
         di: di,
+        dt: dt,
         hit: hit,
         error: function(code) { throw ("asm.js: "+errmsgs[code]); },
         alert_: alert_,
@@ -131,35 +133,37 @@ onmessage = function(e) {
       fncache_id = fncache_id % fncache.length;
       cache_entry.source = s2src;
       cache_entry.settings = settings;
-      cache_entry.fn = function(x_from, y_from, i_from, x_to, y_to, i_to) {
-        var size = 3 * (x_to - x_from) * (y_to - y_from);
+      cache_entry.fn = function(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to) {
+        var size = 3 * (x_to - x_from) * (y_to - y_from) * (t_to - t_from);
         var array = get_floatarray(size);
         
         config.array = array;
         config.x_from = x_from;
         config.y_from = y_from;
         config.i_from = i_from;
+        config.t_from = t_from;
         config.x_to = x_to;
         config.y_to = y_to;
         config.i_to = i_to;
+        config.t_to = t_to;
         config.count = 0;
-        config.last_t = Date.now() - 800; // initial message after 200ms
-        // config.last_t = 0; // initial message straight off
+        config.last_tm = Date.now() - 800; // initial message after 200ms
+        // config.last_tm = 0; // initial message straight off
         
         compiled.resetGlobals();
         
-        compiled.executeRange(x_from, y_from, i_from, x_to, y_to, i_to);
+        compiled.executeRange(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to);
         
         postMessage({
           kind: "finish",
-          x_from: x_from, y_from: y_from, i_from: i_from,
-          x_to  : x_to  , y_to  : y_to  , i_to  : i_to  ,
+          x_from: x_from, y_from: y_from, i_from: i_from, t_from: t_from,
+          x_to  : x_to  , y_to  : y_to  , i_to  : i_to  , t_to  : t_to  ,
           data: array
         });
       };
     }
     
-    cache_entry.fn(x_from, y_from, i_from, x_to, y_to, i_to);
+    cache_entry.fn(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to);
   } catch (err) {
     postMessage({kind: "error", error: err.toString()});
   }

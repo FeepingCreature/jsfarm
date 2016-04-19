@@ -4193,18 +4193,21 @@ function compile(files) {
   var main_fn = main.obj;
   
   jsfile.openSection("function");
-  jsfile.addLine("function executeRange(x_from, y_from, i_from, x_to, y_to, i_to) {");
+  jsfile.addLine("function executeRange(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to) {");
   jsfile.indent();
   jsfile.addLine("x_from = x_from|0;");
   jsfile.addLine("y_from = y_from|0;");
   jsfile.addLine("i_from = i_from|0;");
+  jsfile.addLine("t_from = t_from|0;");
   jsfile.addLine("x_to = x_to|0;");
   jsfile.addLine("y_to = y_to|0;");
   jsfile.addLine("i_to = i_to|0;");
+  jsfile.addLine("t_to = t_to|0;");
   
   jsfile.addLine("var x = 0;");
   jsfile.addLine("var y = 0;");
   jsfile.addLine("var i = 0;");
+  jsfile.addLine("var t = 0;");
   jsfile.addLine("var HP_snapshot = 0;");
   
   jsfile.addLine("HP = stackborder|0;"); // reset to start, as innermost as we can
@@ -4216,6 +4219,9 @@ function compile(files) {
   
   jsfile.addLine("HP_snapshot = HP|0;");
   
+  jsfile.addLine("t = t_from|0;");
+  jsfile.addLine("while ((t|0) < (t_to|0)) {");
+  jsfile.indent();
   jsfile.addLine("y = y_from|0;");
   jsfile.addLine("while ((y|0) < (y_to|0)) {");
   jsfile.indent();
@@ -4232,6 +4238,7 @@ function compile(files) {
     {kind: "expr", type: "int", value: "x"},
     {kind: "expr", type: "int", value: "y"},
     {kind: "expr", type: "int", value: "i"},
+    {kind: "expr", type: "int", value: "t"},
     main_fn
   ];
   var flattened = flatten_array(null, trace_args);
@@ -4245,6 +4252,9 @@ function compile(files) {
   jsfile.unindent();
   jsfile.addLine("}");
   jsfile.addLine("y = (y + 1)|0;");
+  jsfile.unindent();
+  jsfile.addLine("}");
+  jsfile.addLine("t = (t + 1)|0;");
   jsfile.unindent();
   jsfile.addLine("}");
   jsfile.unindent();
@@ -4274,17 +4284,19 @@ function compile(files) {
   jsfile.defineVar("BP", "int", "SP", "variables"); // stack base pointer
   
   // call innermost lambda: vec = (fn x y i)
+  // TODO check for (fn x y i t)
   var vec = callctx.eval(list(
-    {kind: "quote", value: inside_args[3]},
+    {kind: "quote", value: inside_args[4]},
     {kind: "quote", value: inside_args[0]},
     {kind: "quote", value: inside_args[1]},
     {kind: "quote", value: inside_args[2]}
   ));
   
-  var xvar = coerce_double(inside_args[0]), yvar = coerce_double(inside_args[1]), ivar = coerce_double(inside_args[2]);
+  var xvar = coerce_double(inside_args[0]), yvar = coerce_double(inside_args[1]),
+      ivar = coerce_double(inside_args[2]), tvar = coerce_double(inside_args[3]);
   var rvar = js_tag("double", vec.value[0]), gvar = js_tag("double", vec.value[1]), bvar = js_tag("double", vec.value[2]);
   
-  jsfile.addLine("hit(~~"+xvar+", ~~"+yvar+", "+ivar+", "+rvar+", "+gvar+", "+bvar+");");
+  jsfile.addLine("hit(~~"+xvar+", ~~"+yvar+", "+ivar+", "+tvar+", "+rvar+", "+gvar+", "+bvar+");");
   
   jsfile.set("int", "SP", "BP");
   

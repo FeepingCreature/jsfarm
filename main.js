@@ -368,7 +368,7 @@ function RenderScene(jq) {
   
   workset.task_defaults = {
     source: fullsrc,
-    dw: dw, dh: dh, di: quality
+    dw: dw, dh: dh, di: quality, dt: 1
   };
   
   ctx.fillStyle = "rgba("+wipcolor.r+", "+wipcolor.g+", "+wipcolor.b+", 0.7)";
@@ -429,7 +429,7 @@ function RenderScene(jq) {
   };
   
   var extent = Math.max(next_pot(dw), next_pot(dh));
-  var task = new Range(0, 0, 0, extent, extent, quality);
+  var task = new Range(0, 0, 0, 0, extent, extent, quality, 1);
   workset.addTask(task);
   
   jq.find('.progress-container').empty().append(workset.progress_ui.dom);
