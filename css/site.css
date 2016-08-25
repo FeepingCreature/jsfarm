@@ -15,6 +15,28 @@
   margin-bottom: 0px;
 }
 
+/* tutorial info pane and its (i) marker */
+.infofield {
+  max-width: 300pt;
+  padding: 4pt;
+  border-color: #ddf;
+  
+  /* floaty */
+  float: left;
+  margin: 10pt;
+}
+
+hr, dl {
+  clear: left;
+}
+
+.info-marker {
+  font-size: 35px;
+  float: left;
+  margin: 5pt 5pt 0 0;
+  line-height: 1;
+}
+
 .progress {
   margin-bottom: 0px;
 }
@@ -177,4 +199,9 @@ input[type="text"] {
 
 .nav-tabs > li > a {
   padding: 0px 3px;
+}
+
+/* always underline, even when hovering */
+.nav > li > a:hover, .nav > li > a:focus {
+  text-decoration: underline;
 }

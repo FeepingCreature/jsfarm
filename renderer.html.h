@@ -6,6 +6,10 @@
 #define PROGRESS_PANE IDENT-progress-pane
 #define RESULT_AREA   IDENT-result-area
 #define PROGRESS      IDENT-progress
+
+#ifndef SAVE_TEXT
+#define SAVE_TEXT Save
+#endif
 <div class="render_ui" id=XSTR(CONTAINER)>
 <table><tr><td style="vertical-align:top;width:100%;height:100%;">
 
@@ -43,16 +47,16 @@
 
 </td></tr></table>
 
-<button type="button" id="RenderButton" onclick="RenderScene($(this).parent('.render_ui'))">Render</button>
-<button type="button" id="CancelButton" onclick="CancelRender($(this).parent('.render_ui'))" class="starts-hidden">Cancel</button>
-<button type="button" id="SaveButton" onclick="Save($(this).parent('.render_ui'))">Save</button>
+<button type="button" id="RenderButton" class="btn-success" style="font-weight: bold;" onclick="RenderScene($(this).parent('.render_ui'))">Render</button>
+<button type="button" id="CancelButton" class="btn-danger starts-hidden" style="font-weight: bold;" onclick="CancelRender($(this).parent('.render_ui'))">Cancel</button>
+<button type="button" id="SaveButton" class="btn-primary" style="font-weight: bold;" onclick="Save($(this).parent('.render_ui'))">SAVE_TEXT</button>
 &nbsp;|&nbsp;
 <label for="width" title="Width of the rendered image. Please be considerate.">Width</label>
-<input type="text" size="3" id="width" name="width" value=XSTR(WIDTH)>
+<input type="text" class="panel panel-primary" size="3" id="width" name="width" value=XSTR(WIDTH)>
 <label for="height" title="Height of the rendered image. Please be considerate.">Height</label>
-<input type="text" size="3" id="height" name="height" value=XSTR(HEIGHT)>
+<input type="text" class="panel panel-primary" size="3" id="height" name="height" value=XSTR(HEIGHT)>
 <label for="quality" title="Passed to the script as param-quality.">Quality</label>
-<input type="text" size="4" id="quality" name="quality" value="32">
+<input type="text" class="panel panel-primary" size="4" id="quality" name="quality" value="64">
 </div>
 <script>
   var dom = document.getElementById(XSTR(CONTAINER));

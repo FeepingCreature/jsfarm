@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>canvas tests</title>
+<title>JSFarm</title>
 <meta charset="utf-8">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -14,22 +14,25 @@
 </head>
 <body>
 
+#define ACTIVE_PAGE 2
+#include "titlebar.html.h"
+
 <div class="container">
 
 <div class="panel panel-primary">
   <div class="panel-body small-panel">
     <a class="ajaxLink" title="Settings" onclick="$('#settings').toggle()"><span class="glyphicon glyphicon-cog" aria-hidden="true"></span></a>
-    <span class="heading">Background Processing &bull;</span>
+    <span class="heading">Background Processing &middot;</span>
     <div class="panel panel-primary status-panel no-margin"><div class="panel-body smaller-panel" id="StatusPanel">Status: not running</div></div>
     <div id="WorkerInfo" class="starts-hidden">
-    <span class="heading">&bull;</span>
+    <span class="heading">&middot;</span>
     <div class="workerlist">
     </div>
     </div>
-    <span class="heading">&bull;</span>
-    <button type="button" id="ConnectButton" onclick="Connect($('.render_ui'));">Connect</button>
-    <button type="button" id="DisconnectButton" onclick="Disconnect($('.render_ui'));" class="starts-hidden">Disconnect</button>
-    <span class="heading">&bull;
+    <span class="heading">&middot;</span>
+    <button type="button" class="btn-primary" style="font-size: 130%; font-weight: bold; " id="ConnectButton" onclick="Connect($('.render_ui'));">Connect</button>
+    <button type="button" class="btn-success starts-hidden" style="font-size: 130%; font-weight: bold; " id="DisconnectButton" onclick="Disconnect($('.render_ui'));">Disconnect</button>
+    <span class="heading">&middot;
     <span id="HelpedInfo"></span>
     </span>
     <div id="settings" class="starts-hidden">
@@ -40,7 +43,7 @@
           <input type="text" id="target" name="target" size="25" value="" oninput="CheckTarget();">
           <label for="threads" title="Number of background threads you contribute to the network. Default: 2">Threads</label>
           <input type="text" size="1" id="threads" name="threads" value="2" oninput="SaveSettings()">
-          <label for="ident" title="Label used for this computer. Defaults to connection id.">Label</label>
+          <label for="ident" title="Label used for this computer. Defaults to connection id.">My Name</label>
           <input type="text" size="10" id="ident" name="ident" value="" oninput="SaveSettings()">
         </div>
       </div>
