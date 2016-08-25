@@ -17,7 +17,7 @@ function AlreadyInformedError(msg) {
 
 function fail(thing, info) {
   if (typeof thing == 'object' && thing
-    && 'fail' in thing && typeof thing.fail !== 'undefined'
+    && 'fail' in thing && typeof thing.fail === 'function'
   ) thing.fail(info);
   if (typeof log != "undefined") log(info);
   throw new Error("broken "+typeof thing).stack;
@@ -2102,7 +2102,7 @@ function lambda_internal(context, thing, rest) {
   };
   lambda_thing.call = function(callctx, callthing, args) {
     if (argnames.length != args.length) {
-      callthing.fail("lambda call expected "+argnames.length+" arguments, but called with "+args.length);
+      fail(callthing, "lambda call expected "+argnames.length+" arguments, but called with "+args.length);
     }
     
     return instantiate_and_call(callctx, callthing, args, this);

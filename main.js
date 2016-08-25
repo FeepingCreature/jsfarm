@@ -90,6 +90,7 @@ var StorageHandlers = {
           var a = document.createElement("a");
           a.href = obj.html_url;
           logJq($(document.createTextNode('> ')).add($(a).text("Script saved.")).add('<br>'));
+          $(window).trigger('save_succeeded');
         }
       });
     },
@@ -457,10 +458,11 @@ function RenderOrCancel(jq) {
 }
 
 function Connect(jq) {
-  window.connection = new ServerConnection($('body'));
-  window.connection.connect();
   $('#settings input').attr('disabled', 'disabled');
-  log("Connected and waiting for work.");
+  window.connection = new ServerConnection($('body'));
+  window.connection.connect(function() {
+    log("Connected and waiting for work.");
+  });
 }
 
 function Disconnect(jq) {

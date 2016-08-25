@@ -19,7 +19,7 @@ function FnCache() {
   this.settings = {};
   this.fn = null;
   this.matches = function(settings, source) {
-    return JSON.stringify(this.settings) == JSON.stringify(settings) && this.source == source;
+    return JSON.stringify(this.settings) === JSON.stringify(settings) && this.source === source;
   };
 }
 
@@ -131,8 +131,6 @@ onmessage = function(e) {
       
       cache_entry = fncache[fncache_id++];
       fncache_id = fncache_id % fncache.length;
-      cache_entry.source = s2src;
-      cache_entry.settings = settings;
       cache_entry.fn = function(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to) {
         var size = 3 * (x_to - x_from) * (y_to - y_from) * (t_to - t_from);
         var array = get_floatarray(size);
@@ -161,6 +159,8 @@ onmessage = function(e) {
           data: array
         });
       };
+      cache_entry.source = s2src;
+      cache_entry.settings = settings;
     }
     
     cache_entry.fn(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to);

@@ -103,7 +103,7 @@ function EditorUi(jq) {
             return function() {
               file.editor.refresh();
             };
-          }(file), 0);
+          }(file), 10);
         }
       } else {
         file.container.hide();

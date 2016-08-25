@@ -533,7 +533,7 @@ function ServerConnection(jq) {
     this.local = true;
     this.peerjs = new Loopback();
   };
-  this.startup = function() {
+  this.startup = function(onDone) {
     var self = this;
     
     setStatus(jq, "Status: connecting");
@@ -542,8 +542,9 @@ function ServerConnection(jq) {
     self.peerjs.on('open', function(id) {
       self.id = id;
       setStatus(jq, "Status: connected as <span title=\""+self.id+"\">"+getMyLabel(self)+"</span>");
-      $(window).on('unload', null, Disconnect);
       self.startWorkers();
+      onDone();
+      $(window).on('unload', null, Disconnect);
     });
     jq.find('#WorkerInfo').show().css('display', 'inline-block');
   };
@@ -556,11 +557,11 @@ function ServerConnection(jq) {
     jq.find('#WorkerInfo').hide();
     jq.find('#WorkerInfo .workerlist').empty();
   };
-  this.connect = function() {
+  this.connect = function(onDone) {
     this.peerjs = this._connectPeerJs();
     if (!this.peerjs) return;
     
-    this.startup();
+    this.startup(onDone);
     jq.find('#ConnectButton').hide();
     jq.find('#DisconnectButton').show();
   };
@@ -669,7 +670,7 @@ function RenderWorkset(jq, connection) {
   if (connection == null) {
     connection = new ServerConnection(jq);
     connection.isLocal();
-    connection.startup();
+    connection.startup(function() { });
   }
   this.connection = connection;
   
