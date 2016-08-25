@@ -124,7 +124,7 @@ function RobinQueue(limit) {
 }
 
 /** @constructor */
-function Range(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to) {
+function WorkRange(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to) {
   this.x_from = x_from;
   this.y_from = y_from;
   this.i_from = i_from;
@@ -148,7 +148,7 @@ function WorkTask(range, array_id) {
   this.message = range;
   this.sclone = function() {
     var msg = this.message;
-    return new WorkTask(new Range(
+    return new WorkTask(new WorkRange(
       msg.x_from, msg.y_from, msg.i_from, msg.t_from,
       msg.x_to, msg.y_to, msg.i_to, msg.t_to), null);
   };
@@ -160,18 +160,20 @@ var global_help_stats = {
   dom_renders_helped: null,
   dom_samples_helped: null,
   init: function() {
-    this.dom_renders_helped = document.createTextNode(this.num_renders_helped);
-    this.dom_samples_helped = document.createTextNode(this.num_samples_helped);
+    var self = global_help_stats;
+    self.dom_renders_helped = document.createTextNode(self.num_renders_helped);
+    self.dom_samples_helped = document.createTextNode(self.num_samples_helped);
     var jq = $('<span class="helping">You have helped </span>').
-      append($('<b></b>').append(this.dom_renders_helped)).
+      append($('<b></b>').append(self.dom_renders_helped)).
       append(" peers render ").
-      append($('<b></b>').append(this.dom_samples_helped)).
+      append($('<b></b>').append(self.dom_samples_helped)).
       append(" samples.");
     $('#HelpedInfo').append(jq);
   },
   updateInfo: function() {
-    this.dom_renders_helped.nodeValue = this.num_renders_helped.toString();
-    this.dom_samples_helped.nodeValue = this.num_samples_helped.toLocaleString();
+    var self = global_help_stats;
+    self.dom_renders_helped.nodeValue = self.num_renders_helped.toString();
+    self.dom_samples_helped.nodeValue = self.num_samples_helped.toLocaleString();
   }
 };
 

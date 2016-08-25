@@ -9,7 +9,7 @@ var css_default_after = [
   'css/site.css'
 ];
 
-var themes = {
+window["themes"] = {
   'light': {
     editor_theme: 'neat',
     css: [
@@ -37,9 +37,9 @@ function loadCss(url) {
   $('meta').add('link.theme').last().after(link);
 }
 
-function loadTheme(theme) {
+window["loadTheme"] = function(theme) {
   $('link.theme').remove();
-  var theme = themes[theme];
+  var theme = window["themes"][theme];
   for (var i = 0; i < css_default_before.length; i++) {
     loadCss(css_default_before[i]);
   }
@@ -49,11 +49,11 @@ function loadTheme(theme) {
   for (var i = 0; i < css_default_after.length; i++) {
     loadCss(css_default_after[i]);
   }
-  editor_defaults.theme = theme.editor_theme;
+  window["editor_defaults"]["theme"] = theme.editor_theme;
   $(window).trigger('change_editor_theme', theme.editor_theme);
-}
+};
 
-function setTheme(theme) {
+window["setTheme"] = function(theme) {
   Cookies.set('theme', theme);
-  loadTheme(theme);
-}
+  window["loadTheme"](theme);
+};

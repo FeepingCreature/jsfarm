@@ -81,7 +81,7 @@ function setUploadUrlTo(div, url) {
   url_input[0].select();
 }
 
-function setupCanvasUpload(canvas) {
+window["setupCanvasUpload"] = function(canvas) {
   var wrapper = $('<div></div>');
   wrapper.css('position', 'relative');
   
@@ -116,4 +116,4 @@ function setupCanvasUpload(canvas) {
   }, function() {
     imgur_link.fadeOut("fast");
   });
-}
+};

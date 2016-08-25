@@ -58,24 +58,4 @@
 <label for="quality" title="Passed to the script as param-quality.">Quality</label>
 <input type="text" class="panel panel-primary" size="4" id="quality" name="quality" value="64">
 </div>
-<script>
-  var dom = document.getElementById(XSTR(CONTAINER));
-  var canvas = $(dom).find('.render-canvas');
-  var editor = new EditorUi($(dom));
-  dom.editor_ui = editor;
-  editor.files = splitSrc($.trim($(XSTR(#IDENT))[0].value));
-  editor.rebuildFileUi(editor.files);
-  $(XSTR(#IDENT)).remove();
-  setupCanvasUpload(canvas);
-  $(window).on('change_editor_theme', function(editor) {
-    return function(event, str) {
-      for (var i = 0; i < editor.files.length; ++i) {
-        var file = editor.files[i];
-        if (file.hasOwnProperty('editor')) {
-          file.editor.setOption('theme', str);
-          file.editor.refresh();
-        }
-      }
-    };
-  }(editor));
-</script>
+<script>SetupEmbeddedRenderWidget(XSTR(CONTAINER), XSTR(#IDENT));</script>

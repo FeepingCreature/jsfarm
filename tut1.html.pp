@@ -12,16 +12,11 @@
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<script src="js/all.min.js"></script> 
-<script>css_default_after.push('css/tutorial.css');</script>
-<script src="js/main.min.js"></script>
-<script>
-$(window).on('save_succeeded', function() {
-  // window.open("."+window.location.hash);
-  // redirect instead of popup
-  window.location.href = "."+window.location.hash;
-});
-</script>
+<link rel="stylesheet" type="text/css" href="css/tutorial.css">
+
+#include "javascript.html.h"
+
+<script>reloadPageOnSave();</script>
 
 <link rel='icon' href='data:;base64,iVBORw0KGgo='>
 

@@ -1,25 +1,56 @@
-'use strict';
+// patch CodeMirror
+(function() {
+  var userAgent = navigator.userAgent;
+  var ie_upto10 = /MSIE \d/.test(userAgent);
+  var ie_11up = /Trident\/(?:[7-9]|\d{2,})\..*rv:(\d+)/.exec(userAgent);
+  var ie = ie_upto10 || ie_11up;
+  var ie_version = ie && (ie_upto10 ? document.documentMode || 6 : ie_11up[1]);
+  var ios = /AppleWebKit/.test(userAgent) && /Mobile\/\w+/.test(userAgent);
+  
+  var selectInput = function(node) { node.select(); };
+  if (ios) // Mobile Safari apparently has a bug where select() is broken.
+    selectInput = function(node) { node.selectionStart = 0; node.selectionEnd = node.value.length; };
+  else if (ie) // Suppress mysterious IE10 errors
+    selectInput = function(node) { try { node.select(); } catch(_e) {} };
+  
+  CodeMirror.inputStyles["textarea"].prototype.reset = function(typing) {
+    if (this.contextMenuPending) return;
+    var selected, cm = this.cm, doc = cm.doc;
+    if (cm.somethingSelected()) {
+      this.prevInput = "";
+      var range = doc.sel.primary();
+      var content = selected || cm.getSelection();
+      this.textarea.value = content;
+      if (cm.state.focused) selectInput(this.textarea);
+      if (ie && ie_version >= 9) this.hasSelection = content;
+    } else if (!typing) {
+      this.prevInput = this.textarea.value = "";
+      if (ie && ie_version >= 9) this.hasSelection = null;
+    }
+    this.inaccurateSelection = false;
+  };
+})();
 
 $('#result_area > .nav-tabs a').click(function (e) {
   e.preventDefault();
   $(this).tab('show');
 });
 
-var editor_defaults = {
-  lineNumbers: true,
-  mode: "renderlisp",
-  matchBrackets: true,
-  autoCloseBrackets: true,
-  indentUnit: 2,
-  gutters: ["error-gutter"],
-  viewportMargin: Infinity,
-  showCursorWhenSelecting: true,
-  lineWiseCopyCut: false // why is this on by default??
+window["editor_defaults"] = {
+  'lineNumbers': true,
+  'mode': "renderlisp",
+  'matchBrackets': true,
+  'autoCloseBrackets': true,
+  'indentUnit': 2,
+  'gutters': ["error-gutter"],
+  'viewportMargin': Infinity,
+  'showCursorWhenSelecting': true,
+  'lineWiseCopyCut': false // why is this on by default??
 };
 
-function getEditorCfg(jq) {
-  return $.extend({}, editor_defaults, {
-    extraKeys: {
+window["getEditorCfg"] = function(jq) {
+  return $.extend({}, window["editor_defaults"], {
+    'extraKeys': {
       'Ctrl-Enter': function(cm) {
         RenderOrCancel(jq);
       },
@@ -31,11 +62,11 @@ function getEditorCfg(jq) {
       }
     }
   });
-}
+};
 
 var theme = Cookies.get('theme');
-if (!theme || !themes.hasOwnProperty(theme)) theme = 'light';
-loadTheme(theme);
+if (!theme || !window["themes"].hasOwnProperty(theme)) theme = 'light';
+window["loadTheme"](theme);
 
 function bootstrap_progbar() {
   var progbar = $(
@@ -55,20 +86,20 @@ function bootstrap_progbar() {
   };
 }
 
-function LoadSettings() {
+window["LoadSettings"] = function() {
   var obj = Cookies.getJSON('settings');
   if (!obj) return;
   if (obj.hasOwnProperty('threads')) document.getElementById('threads').value = obj.threads|0;
   if (obj.hasOwnProperty('ident')) document.getElementById('ident').value = obj.ident;
-}
+};
 
-function SaveSettings() {
+window["SaveSettings"] = function() {
   var obj = {
     threads: document.getElementById('threads').value|0,
     ident: document.getElementById('ident').value
   };
   Cookies.set('settings', obj);
-}
+};
 
 var StorageHandlers = {
   "gist.github.com": {
@@ -264,7 +295,7 @@ function LoadStateFromAnchor(dom) {
 
 $(function() {
   $(window).on('beforeunload', function() {
-    if (!window.editor.allClean()) {
+    if (!window["editor"].allClean()) {
       return "You have unsaved code! Are you sure you want to leave?";
     }
   });
@@ -471,7 +502,7 @@ function RenderScene(jq) {
   };
   
   var extent = Math.max(next_pot(dw), next_pot(dh));
-  var task = new Range(0, 0, 0, 0, extent, extent, quality, 1);
+  var task = new WorkRange(0, 0, 0, 0, extent, extent, quality, 1);
   workset.addTask(task);
   
   jq.find('.progress-container').empty().append(workset.progress_ui.dom);
@@ -515,3 +546,42 @@ function Disconnect(jq) {
   window.connection.disconnect();
   window.connection = null;
 }
+
+window["reloadPageOnSave"] = function() {
+  $(window).on('save_succeeded', function() {
+    // window.open("."+window.location.hash);
+    // redirect instead of popup
+    window.location.href = "."+window.location.hash;
+  });
+};
+
+window["SetupMainPage"] = function(containerId) {
+  $('#target')[0].defaultValue = location.host+"/jsfarm";
+  var dom = document.getElementById(containerId);
+  var editor = dom.editor_ui;
+  window["editor"] = editor;
+  LoadSettings();
+  LoadStateFromAnchor(dom);
+};
+
+window["SetupEmbeddedRenderWidget"] = function(containerId, ident) {
+  var dom = document.getElementById(containerId);
+  var canvas = $(dom).find('.render-canvas');
+  var editor = new EditorUi($(dom));
+  dom.editor_ui = editor;
+  editor.files = splitSrc($.trim($(ident)[0].value));
+  editor.rebuildFileUi(editor.files);
+  $(ident).remove();
+  setupCanvasUpload(canvas);
+  $(window).on('change_editor_theme', function(editor) {
+    return function(event, str) {
+      for (var i = 0; i < editor.files.length; ++i) {
+        var file = editor.files[i];
+        if (file.hasOwnProperty('editor')) {
+          file.editor.setOption('theme', str);
+          file.editor.refresh();
+        }
+      }
+    };
+  }(editor));
+};

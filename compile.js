@@ -3,13 +3,13 @@
 var STACK_DEBUG = false;
 
 Error.stackTraceLimit=undefined;
-/** @Constructor */
+/** @constructor */
 function RequireLoopError(msg) {
   this.name = 'RequireLoopError';
   this.message = msg;
 }
 
-/** @Constructor */
+/** @constructor */
 function AlreadyInformedError(msg) {
   this.name = 'AlreadyInformedError';
   this.message = msg;
@@ -997,6 +997,26 @@ function match_op(thing, ident) {
   return true;
 }
 
+/** @constructor */
+function LambdaProps(arglist, argnames, body, thing, scope) {
+  this.arglist = arglist;
+  this.argnames = argnames;
+  this.body = body;
+  this.thing = thing;
+  this.scope = scope;
+  this.rewriteWith = function(nbody) {
+    var list = [];
+    list.push({kind: "atom", value: (this.scope == "stack")?"local-lambda":"lambda"});
+    list.push(this.arglist);
+    list.push(nbody);
+    return {
+      kind: "list",
+      fail: this.thing.fail,
+      value: list
+    };
+  };
+}
+
 function match_lambda(thing) {
   var scope = "heap";
   if (match_op(thing, "local-lambda")) scope = "stack";
@@ -1014,24 +1034,7 @@ function match_lambda(thing) {
   }
   
   var body = args[1];
-  return {
-    arglist: args[0],
-    argnames: argnames,
-    body: body,
-    thing: thing,
-    scope: scope,
-    rewriteWith: function(nbody) {
-      var list = [];
-      list.push({kind: "atom", value: (this.scope == "stack")?"local-lambda":"lambda"});
-      list.push(this.arglist);
-      list.push(nbody);
-      return {
-        kind: "list",
-        fail: this.thing.fail,
-        value: list
-      };
-    }
-  };
+  return new LambdaProps(args[0], argnames, body, thing, scope);
 }
 
 /**
@@ -1324,6 +1327,34 @@ function convert_closures(context, thing) {
   return array;
 }
 
+/** @constructor */
+function Let1Props(name, value, bind, body, thing, ident) {
+  this.name = name;
+  this.value = value;
+  this.bind = bind;
+  this.body = body;
+  this.thing = thing;
+  this.ident = ident;
+  this.rewriteWith = function(nvalue, nbody) {
+    return {
+      kind: "list",
+      fail: this.thing.fail,
+      value: [
+	{kind: "atom", value: this.ident},
+	{
+	  kind: "list",
+	  fail: this.thing.value[1].fail,
+	  value: [
+	    {kind: "atom", value: this.name, fail: this.bind.value[0].fail},
+	    nvalue
+	  ]
+	},
+	nbody
+      ]
+    };
+  };
+}
+
 function match_let1(thing, as_alias) {
   var myident = as_alias?"alias1":"let1";
   
@@ -1339,32 +1370,7 @@ function match_let1(thing, as_alias) {
   )
     fail(bind, "'"+myident+"' expects (name value) pair, not "+sexpr_dump(thing));
   
-  return {
-    name: bind.value[0].value,
-    value: bind.value[1],
-    bind: bind,
-    body: args[1],
-    thing: thing,
-    ident: myident,
-    rewriteWith: function(nvalue, nbody) {
-      return {
-        kind: "list",
-        fail: this.thing.fail,
-        value: [
-          {kind: "atom", value: this.ident},
-          {
-            kind: "list",
-            fail: this.thing.value[1].fail,
-            value: [
-              {kind: "atom", value: this.name, fail: this.bind.value[0].fail},
-              nvalue
-            ]
-          },
-          nbody
-        ]
-      };
-    }
-  };
+  return new Let1Props(bind.value[0].value, bind.value[1], bind, args[1], thing, myident);
 }
 
 function unroll_macros(context, thing) {
@@ -2343,6 +2349,26 @@ function while_internal(context, thing, rest) {
   return res;
 }
 
+/** @constructor */
+function MakeStructProps(names_arr, values_arr, location) {
+  this.names = names_arr;
+  this.values = values_arr;
+  this.location = location;
+  this.rewriteWith = function(fn) {
+    var pairlist = [];
+    if (this.location == "stack") pairlist.push("make-struct");
+    else if (this.location == "heap") pairlist.push("alloc-struct");
+    else throw "internal error";
+    for (var i = 0; i < this.names.length; ++i) {
+      pairlist.push(list(this.names[i], fn(this.names[i], this.values[i])));
+    }
+    var res = list.apply(this, pairlist);
+    // log("debug: A: ", sexpr_dump(thing));
+    // log("debug: B: ", sexpr_dump(res));
+    return res;
+  };
+}
+
 function match_makestruct(thing, location) {
   if (thing.kind != "list") return null;
   var array = thing.value;
@@ -2373,24 +2399,7 @@ function match_makestruct(thing, location) {
     names_arr.push(name);
     values_arr.push(value);
   }
-  return {
-    names: names_arr,
-    values: values_arr,
-    location: location,
-    rewriteWith: function(fn) {
-      var pairlist = [];
-      if (this.location == "stack") pairlist.push("make-struct");
-      else if (this.location == "heap") pairlist.push("alloc-struct");
-      else throw "internal error";
-      for (var i = 0; i < this.names.length; ++i) {
-        pairlist.push(list(this.names[i], fn(this.names[i], this.values[i])));
-      }
-      var res = list.apply(this, pairlist);
-      // log("debug: A: ", sexpr_dump(thing));
-      // log("debug: B: ", sexpr_dump(res));
-      return res;
-    }
-  };
+  return new MakeStructProps(names_arr, values_arr, location);
 }
 
 function match_makearray(thing, location) {
@@ -2530,11 +2539,13 @@ function makestruct_internal(context, thing, rest, location) {
   return make_struct_on(location, context, thing, names_arr, values_arr);
 }
 
+/** @constructor */
 function RLArrayType(base) {
   this.kind = "array-type";
   this.base = base;
 }
 
+/** @constructor */
 function RLArray(type, ptr, size) {
   if (type.kind != "array-type") throw "bad type for array";
   if (ptr.type != "int") throw "bad ptr for array";

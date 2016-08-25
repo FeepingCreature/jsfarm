@@ -22,16 +22,18 @@ cp -R addon/ $TEMP_FDR/
 # still needed (because source map)
 cp *.js lib/*.js $TEMP_FDR/js/
 
-FILES="jquery.min.js bootstrap.min.js"
-FILES="$FILES jquery.color-2.1.0.min.js js.cookie-2.1.0.min.js dom-q.js hashwords.min.js"
-FILES="$FILES lib/codemirror.js renderlisp.js"
-FILES="$FILES addon/edit/matchbrackets.js addon/edit/closebrackets.js addon/selection/mark-selection.js"
+FILES="js.cookie-2.1.0.js dom-q.js hashwords.min.js"
+FILES="$FILES renderlisp.js"
 FILES="$FILES imgur_canvas.js"
 FILES="$FILES peer.js compile.js files.js time.js log.js rgbe.js networking.js progress.js edit.js themes.js"
+FILES="$FILES main.js"
 
 echo "minifying $FILES"
-java -jar compiler.jar -W QUIET --create_source_map "$TEMP_FDR/js/all.min.map"  --js_output_file="$TEMP_FDR/js/all.min.js"  $FILES
-java -jar compiler.jar -W QUIET --create_source_map "$TEMP_FDR/js/main.min.map" --js_output_file="$TEMP_FDR/js/main.min.js" "main.js"
+java -jar compiler.jar -W QUIET \
+  --create_source_map "$TEMP_FDR/js/all.min.map" \
+  --compilation_level SIMPLE \
+  --js_output_file="$TEMP_FDR/js/all.min.js" \
+  $FILES
 
 echo "replacing existing folder"
 mv $TARGET_FDR/ $OLD_FDR/

@@ -26,7 +26,7 @@ function formatTime(d) {
   return res;
 }
 
-var dom_queue = domq.batch();
+var dom_queue = window.domq.batch();
 
 function text(node, content) {
   /*

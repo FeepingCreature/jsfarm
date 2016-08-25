@@ -6,8 +6,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<script src="js/all.min.js"></script> 
-<script src="js/main.min.js"></script>
+#include "javascript.html.h"
 
 <link rel='icon' href='data:;base64,iVBORw0KGgo='>
 
@@ -59,13 +58,7 @@
 #include "default.rl.h"
 #include "renderer.html.h"
 
-<script>
-  $('#target')[0].defaultValue = location.host+"/jsfarm";
-  var dom = document.getElementById(XSTR(IDENT-container));
-  var editor = dom.editor_ui;
-  LoadSettings();
-  LoadStateFromAnchor(dom);
-</script>
+<script>SetupMainPage(XSTR(IDENT-container));</script>
 
 <hr class="semisane">
 <p>Console</p>

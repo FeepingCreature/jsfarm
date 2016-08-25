@@ -8,8 +8,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<script src="js/all.min.js"></script> 
-<script src="js/main.min.js"></script>
+#include "javascript.html.h"
 
 <link rel='icon' href='data:;base64,iVBORw0KGgo='>
 
@@ -104,9 +103,7 @@ And above all: <b>have fun rendering!</b>
 
 <p style="clear: both;"></p>
 
-<script>
-  LoadSettings();
-</script>
+<script>LoadSettings();</script>
 
 #include "themeswitch.html.h"
 

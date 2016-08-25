@@ -10,7 +10,7 @@ function setupStar(editor, file) {
 }
 
 /** @constructor */
-function EditorUi(jq) {
+window["EditorUi"] = function(jq) {
   this.files = [];
   this.addEditors = function(newfiles) {
     var editors_dom = jq.find('#editors_content');
@@ -135,7 +135,7 @@ function EditorUi(jq) {
     this.addEditors(newfiles);
     this.addRiders(newfiles);
   };
-}
+};
 
 function getFullSrc(editor) {
   // read back

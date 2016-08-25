@@ -1,11 +1,18 @@
 'use strict';
 
-function currentSource() {
-  if (this.hasOwnProperty('editor')) {
-    return this.editor.getValue();
-  } else {
-    return this.src; // editor not loaded (uninitialized tab)
-  }
+/** @constructor */
+function FarmFileEntry(filename, src, rowbase) {
+  this.name = filename;
+  this.src = src;
+  this.rowbase = rowbase;
+  this.clear = function() { };
+  this.currentSource = function() {
+    if (this.hasOwnProperty('editor')) {
+      return this.editor.getValue();
+    } else {
+      return this.src; // editor not loaded (uninitialized tab)
+    }
+  };
 }
 
 function splitSrc(src) {
@@ -35,12 +42,13 @@ function splitSrc(src) {
           // throw ("duplicate file name '"+filename+"'");
         }
       }
-      files.push({name: filename, src: src, rowbase: rowbase, clear: function(){}, currentSource: currentSource});
+      files.push(new FarmFileEntry(filename, src, rowbase));
     } else if (part.length) {
       src = part;
-      files.push({name: null, src: src, rowbase: rowbase, clear: function(){}, currentSource: currentSource});
+      files.push(new FarmFileEntry(null, src, rowbase));
     }
     if (src) rowbase += src.split("\n").length;
   }
   return files;
 };
+if (typeof window !== "undefined") window["splitSrc"] = splitSrc;
