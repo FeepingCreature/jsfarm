@@ -88,7 +88,7 @@
         (bound (: ,fn bound))
         (fn (type SceneFun ,lamb)))
        (alloc-struct
-        (bound (make-bound (vec3f (- 0 Infinity)) (vec3f Infinity)))
+        (bound (make-bound (vec3f -Infinity) (vec3f Infinity)))
         (fn (type SceneFun ,lamb))))))
 
 ; http://burtleburtle.net/bob/rand/smallprng.html
@@ -574,22 +574,6 @@
      (mat-translate pos mat)
      (matrix-transform mat obj))))
 
-(def camera
-  (lambda (pos look-at scene)
-    (let
-     ((mat (ident-matrix))
-      (dir (- look-at pos))
-      (-pos (- 0 pos))
-      (flatdir (vec3f dir:x 0 dir:z)))
-     ; translate the camera position into the origin
-     (mat-translate -pos mat)
-     ; rotate planar direction into +Z
-     (mat-rotate (cross flatdir +Z) (angle flatdir +Z) mat)
-     (let
-      ((dir' (vec4->vec3 (mat-mult-mv3 mat dir 0))))
-      (mat-rotate (cross dir' +Z) (angle dir' +Z) mat)
-      (matrix-transform mat scene)))))
-
 ; transform obj so that a-b lies in c-d
 (def transform-into
   (lambda (a b c d obj)
@@ -617,6 +601,26 @@
      (mat-translate c mat)
      ; and apply
      (matrix-transform mat obj))))
+
+; @file camera
+(require util matrix)
+
+(def camera
+  (lambda (pos look-at scene)
+    (let
+     ((mat (ident-matrix))
+      (dir (- look-at pos))
+      (-pos (- 0 pos))
+      (flatdir (vec3f dir:x 0 dir:z)))
+     ; translate the camera position into the origin
+     (mat-translate -pos mat)
+     ; rotate planar direction into +Z
+     (mat-rotate (cross flatdir +Z) (angle flatdir +Z) mat)
+     (let
+      ((dir' (vec4->vec3 (mat-mult-mv3 mat dir 0))))
+      (mat-rotate (cross dir' +Z) (angle dir' +Z) mat)
+      (matrix-transform mat scene)))))
+
 ; @file pathtrace
 (require util matrix)
 
@@ -828,76 +832,74 @@
   (macro (obj)
     `(if (struct? ,obj)
        (: ,obj bound)
-       (make-bound (vec3f (- 0 Infinity)) (vec3f Infinity)))))
+       (make-bound (vec3f -Infinity) (vec3f Infinity)))))
 
 (def merge-bounding-box
   (lambda (box1 box2)
     (seq
      (make-bound
       (vec3f
-       (min (: box1 from x) (: box2 from x))
-       (min (: box1 from y) (: box2 from y))
-       (min (: box1 from z) (: box2 from z)))
+       (min box1:from:x box2:from:x)
+       (min box1:from:y box2:from:y)
+       (min box1:from:z box2:from:z))
       (vec3f
-       (max (: box1 to x) (: box2 to x))
-       (max (: box1 to y) (: box2 to y))
-       (max (: box1 to z) (: box2 to z)))))))
+       (max box1:to:x box2:to:x)
+       (max box1:to:y box2:to:y)
+       (max box1:to:z box2:to:z))))))
 
 (def intersect-bounding-box
   (lambda (box1 box2)
     (seq
      (make-bound
       (vec3f
-       (max (: box1 from x) (: box2 from x))
-       (max (: box1 from y) (: box2 from y))
-       (max (: box1 from z) (: box2 from z)))
+       (max box1:from:x box2:from:x)
+       (max box1:from:y box2:from:y)
+       (max box1:from:z box2:from:z))
       (vec3f
-       (min (: box1 to x) (: box2 to x))
-       (min (: box1 to y) (: box2 to y))
-       (min (: box1 to z) (: box2 to z)))))))
+       (min box1:to:x box2:to:x)
+       (min box1:to:y box2:to:y)
+       (min box1:to:z box2:to:z))))))
 
 (def infinite-sized-box
   (lambda (box)
     (and
-     (and (= (: box from x) (- 0 Infinity))
-          (and
-           (= (: box from y) (- 0 Infinity))
-           (= (: box from z) (- 0 Infinity))))
-     (and (= (: box to x) Infinity)
-          (and
-           (= (: box to y) Infinity)
-           (= (: box to z) Infinity))))))
+      (= box:from:x -Infinity)
+      (= box:from:y -Infinity)
+      (= box:from:z -Infinity)
+      (= box:to:x Infinity)
+      (= box:to:y Infinity)
+      (= box:to:z Infinity))))
 
 (def ray_hits_bound
   (lambda (from to ray)
     (let
-      ((enter (vec3f (- 0 Infinity)))
+      ((enter (vec3f -Infinity))
        (exit (vec3f Infinity))
        ; shift ray into origin
-       (rfrom (- from (: ray pos)))
-       (rto (- to (: ray pos)))
-       (dir (: ray dir)))
-      (if (!= (: dir x) 0)
+       (rfrom (- from ray:pos))
+       (rto (- to ray:pos))
+       (dir ray:dir))
+      (if (!= dir:x 0)
         (let
-          ((a (/ (: rfrom x) (: dir x)))
-           (b (/ (: rto x) (: dir x))))
-          (set (: enter x) (min a b))
-          (set (: exit x) (max a b))))
-      (if (!= (: dir y) 0)
+          ((a (/ rfrom:x dir:x))
+           (b (/ rto:x dir:x)))
+          (set enter:x (min a b))
+          (set exit:x (max a b))))
+      (if (!= dir:y 0)
         (let
-          ((a (/ (: rfrom y) (: dir y)))
-           (b (/ (: rto y) (: dir y))))
-          (set (: enter y) (min a b))
-          (set (: exit y) (max a b))))
-      (if (!= (: dir z) 0)
+          ((a (/ rfrom:y dir:y))
+           (b (/ rto:y dir:y)))
+          (set enter:y (min a b))
+          (set exit:y (max a b))))
+      (if (!= dir:z 0)
         (let
-          ((a (/ (: rfrom z) (: dir z)))
-           (b (/ (: rto z) (: dir z))))
-          (set (: enter z) (min a b))
-          (set (: exit z) (max a b))))
+          ((a (/ rfrom:z dir:z))
+           (b (/ rto:z dir:z)))
+          (set enter:z (min a b))
+          (set exit:z (max a b))))
       (let
-        ((last_entry (max (max (: enter x) (: enter y)) (: enter z)))
-         (first_exit (min (min (: exit x) (: exit y)) (: exit z))))
+        ((last_entry (max enter:x enter:y enter:z))
+         (first_exit (min exit:x exit:y exit:z)))
         ; if entry is before exit, and exit is ahead of us
         (and (>= first_exit last_entry) (>= first_exit 0))))))
 
@@ -1361,7 +1363,7 @@
     (if (struct? fn)
       fn
       (alloc-struct
-       (bound (make-bound (vec3f (- 0 Infinity)) (vec3f Infinity)))
+       (bound (make-bound (vec3f -Infinity) (vec3f Infinity)))
        (fn (type SceneFun fn))))))
 
 (def bound-group
