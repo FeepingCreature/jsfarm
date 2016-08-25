@@ -283,6 +283,25 @@ function next_pot(n) {
   return n;
 }
 
+function initCanvasTodoLoop(canvas) {
+  if (canvas.hasOwnProperty("todo")) return;
+  canvas.todo = [];
+  canvas.frameRequested = false
+  var flushCanvas = function() {
+    canvas.frameRequested = false;
+    while (canvas.todo.length) {
+      canvas.todo.pop()();
+    }
+  };
+  canvas.onNextFrame = function(fn) {
+    canvas.todo.push(fn);
+    if (canvas.frameRequested) return;
+    canvas.frameRequested = true;
+    if ("requestAnimationFrame" in window) requestAnimationFrame(flushCanvas);
+    else flushCanvas();
+  };
+}
+
 function RenderScene(jq) {
   $(window).trigger("startRender");
   
@@ -396,25 +415,47 @@ function RenderScene(jq) {
       tdw = task.x_to - task.x_from,
       tdh = task.y_to - task.y_from,
       tdi = task.i_to - task.i_from;
-    var brush = get_brush(tdw, tdh);
-    var bdata = brush.data;
+    
+    initCanvasTodoLoop(canvas);
+    canvas.onNextFrame(function() {
+      var brush = get_brush(tdw, tdh);
+      var bdata = brush.data;
+      
+      var transform = function(f) {
+        f = +f;
+        if (f > 1) f = 1;
+        if (f < 0) f = 0;
+        f *= 255.99;
+        return f | 0;
+      };
+      
+      for (var y = 0; y < tdh; ++y) {
+        for (var x = 0; x < tdw; ++x) {
+          var base = y * tdw + x;
+          var rbase = (y + task.y_from) * dw + (x + task.x_from);
+          var r = ResultData[rbase*4+0];
+          var g = ResultData[rbase*4+1];
+          var b = ResultData[rbase*4+2];
+          var i = ResultData[rbase*4+3];
+          bdata[base*4+0] = transform(r/i);
+          bdata[base*4+1] = transform(g/i);
+          bdata[base*4+2] = transform(b/i);
+          bdata[base*4+3] = 255;
+        }
+      }
+      ctx.putImageData(brush, task.x_from, task.y_from);
+    });
+    
     for (var y = 0; y < tdh; ++y) {
       for (var x = 0; x < tdw; ++x) {
         var base = y * tdw + x;
         var rbase = (y + task.y_from) * dw + (x + task.x_from);
-        var r = ResultData[rbase*4+0] + wdata[base*3+0]; ResultData[rbase*4+0] = r;
-        var g = ResultData[rbase*4+1] + wdata[base*3+1]; ResultData[rbase*4+1] = g;
-        var b = ResultData[rbase*4+2] + wdata[base*3+2]; ResultData[rbase*4+2] = b;
-        var i = ResultData[rbase*4+3] + tdi; ResultData[rbase*4+3] = i;
-        r /= i; g /= i; b /= i;
-        
-        bdata[base*4+0] = Math.floor(Math.max(0, Math.min(1, r)) * 255.99);
-        bdata[base*4+1] = Math.floor(Math.max(0, Math.min(1, g)) * 255.99);
-        bdata[base*4+2] = Math.floor(Math.max(0, Math.min(1, b)) * 255.99);
-        bdata[base*4+3] = 255;
+        ResultData[rbase*4+0] += wdata[base*3+0];
+        ResultData[rbase*4+1] += wdata[base*3+1];
+        ResultData[rbase*4+2] += wdata[base*3+2];
+        ResultData[rbase*4+3] += tdi;
       }
     }
-    ctx.putImageData(brush, task.x_from, task.y_from);
   };
   
   workset.onTaskProgress = function(task, frac) {
