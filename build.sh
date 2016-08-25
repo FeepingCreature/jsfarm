@@ -29,10 +29,6 @@ FILES="$FILES addon/edit/matchbrackets.js addon/edit/closebrackets.js addon/sele
 FILES="$FILES imgur_canvas.js"
 FILES="$FILES peer.js compile.js files.js time.js log.js rgbe.js networking.js progress.js edit.js themes.js"
 
-#echo "pre-minifying"
-#java -jar compiler.jar -W QUIET -O WHITESPACE_ONLY --js_output_file='$TEMP_FDR/js/all.min.js' $FILES
-#java -jar compiler.jar -W QUIET -O WHITESPACE_ONLY --js_output_file='$TEMP_FDR/js/main.min.js' 'main.js'
-
 echo "minifying $FILES"
 java -jar compiler.jar -W QUIET --create_source_map "$TEMP_FDR/js/all.min.map"  --js_output_file="$TEMP_FDR/js/all.min.js"  $FILES
 java -jar compiler.jar -W QUIET --create_source_map "$TEMP_FDR/js/main.min.map" --js_output_file="$TEMP_FDR/js/main.min.js" "main.js"
