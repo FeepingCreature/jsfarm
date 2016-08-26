@@ -3,26 +3,30 @@
     <div class="navbar-collapse collapse">
       <ul class="nav navbar-nav">
 #if ACTIVE_PAGE != 0
-	<li>
+        <li>
 #else
-	<li class="active">
+        <li class="active">
 #endif
-	<a href="info.html">Introduction</a>
-	</li>
+        <a href="info.html">Introduction</a>
+        </li>
 #if ACTIVE_PAGE != 1
-	<li>
+        <li>
 #else
-	<li class="active">
+        <li class="active">
 #endif
-	<a href="tut1.html">Tutorial</a>
-	</li>
+        <a href="tut1.html">Tutorial</a>
+        </li>
 #if ACTIVE_PAGE != 2
-	<li>
+        <li>
 #else
-	<li class="active">
+        <li class="active">
 #endif
-	<a href=".">Main Page</a>
-	</li>
+        <a href=".">Main Page</a>
+        </li>
+        
+        <li>
+        <a href="https://github.com/FeepingCreature/jsfarm/">Github</a>
+        </li>
       </ul>
     </div>
   </div>
