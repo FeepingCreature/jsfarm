@@ -159,21 +159,26 @@ var global_help_stats = {
   num_samples_helped: 0,
   dom_renders_helped: null,
   dom_samples_helped: null,
+  dom_peer_plural: null,
   init: function() {
     var self = global_help_stats;
-    self.dom_renders_helped = document.createTextNode(self.num_renders_helped);
-    self.dom_samples_helped = document.createTextNode(self.num_samples_helped);
+    self.dom_renders_helped = document.createTextNode("");
+    self.dom_samples_helped = document.createTextNode("");
+    self.dom_peer_plural = document.createTextNode("");
     var jq = $('<span class="helping">You have helped </span>').
       append($('<b></b>').append(self.dom_renders_helped)).
-      append(" peers render ").
+      append(" ").append(self.dom_peer_plural).append(" render ").
       append($('<b></b>').append(self.dom_samples_helped)).
       append(" samples.");
     $('#HelpedInfo').append(jq);
+    self.updateInfo();
   },
   updateInfo: function() {
     var self = global_help_stats;
     self.dom_renders_helped.nodeValue = self.num_renders_helped.toString();
     self.dom_samples_helped.nodeValue = self.num_samples_helped.toLocaleString();
+    if (self.num_renders_helped == 1) self.dom_peer_plural.nodeValue = "peer";
+    else self.dom_peer_plural.nodeValue = "peers";
   }
 };
 
