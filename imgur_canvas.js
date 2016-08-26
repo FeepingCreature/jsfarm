@@ -36,11 +36,18 @@ function startUploadingToImgur(div) {
   
   // thanks http://stackoverflow.com/questions/17805456/upload-a-canvas-image-to-imgur-api-v3-with-javascript
   // thanks http://www.dave-bond.com/blog/2010/01/JQuery-ajax-progress-HMTL5/
+  setAnchorState('image', null); // don't include in the location being shared
+  
+  var description = "Rendered with JSFarm: http://feephome.no-ip.org/~feep/jsfarm/info.html";
+  if ('editor' in window && window['editor'].allClean()) {
+    description += "\n\nScene source here: "+window.location;
+  } // TODO else save first?
+  
   $.ajax({
     url: 'https://api.imgur.com/3/image',
     type: 'POST',
     headers: {Authorization: 'Client-ID fb5f6b8b3eea40a'},
-    data: {image: img},
+    data: {image: img, description: description},
     dataType: 'json',
     success: function(response) {
       if(response.success) {

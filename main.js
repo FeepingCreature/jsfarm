@@ -147,7 +147,7 @@ var StorageHandlers = {
 
 function storeAnchor(obj) {
   var anchor_array = [];
-  for (var key in obj) if (obj.hasOwnProperty(key)) {
+  for (var key in obj) if (obj.hasOwnProperty(key) && obj[key] !== null) {
     anchor_array.push(key+"="+obj[key]);
   }
   window.location = "#"+anchor_array.join(";");
