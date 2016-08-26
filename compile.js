@@ -2738,7 +2738,6 @@ function Context(sup, js) {
         fail(list[0], "operator not found: "+sexpr_dump(list[0])+" at "+this.info());
       }
       if (can_call(op)) {
-        var lex_ctx = new Context(this);
         var args = [];
         
         if (op.kind === "closure-poly") {
@@ -2763,7 +2762,7 @@ function Context(sup, js) {
           args.push(arg);
         }
         
-        var res = op.call(lex_ctx, thing, args);
+        var res = op.call(this, thing, args);
         if (typeof res === "undefined") res = null;
         // log("| "+sexpr_dump(thing)+" => "+sexpr_dump(res));
         return res;
@@ -4107,7 +4106,7 @@ function compile(files) {
         var subfile = get_context_and_eval_for_file(filename, subthing);
         if (!subfile) fail(subthing, "no such module found");
         
-        var toplevel = context.sup;
+        var toplevel = context;
         if (!toplevel.hasOwnProperty("toplevel")) fail(subthing, "'require' only permitted at the top level."+context.info());
         toplevel.addRequire(subfile.context);
       } catch (error) {
