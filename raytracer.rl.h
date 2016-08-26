@@ -1009,7 +1009,7 @@
 (def checker
   (lambda (a b)
     (type
-      (closure-type (list Vec3f) Vec3f)
+      (closure-type (list Vec3f) (typeof (+ a b)))
       (lambda (v)
         (let
           ((i (^

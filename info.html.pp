@@ -59,7 +59,7 @@ So for the next four months, nothing happened. Turns out, writing documentation 
 </p>
 
 <p>
-So here it is! Presenting <b>JSFarm: P2P distributed raytracing for your browser.</b> The language is completely undocumented, but things should mostly work like they do in Lisp.
+So here it is! Presenting <b>JSFarm: P2P distributed raytracing for your browser.</b> The base language is completely undocumented, but things should mostly work like they do in Lisp.
 There's <a href="tut1.html">a tutorial that I'd written up</a>, which introduces the basics of the scene language,
 <a href="https://github.com/FeepingCreature/jsfarm/wiki/FAQ">a FAQ</a>, and
 <a href="https://github.com/FeepingCreature/jsfarm/wiki/Introduction">an introduction to the user interface</a> on Github.
@@ -92,6 +92,12 @@ And above all: <b>have fun rendering!</b>
   <div class="panel panel-default" style="float:left;margin-right: 12px;">
     <div class="panel-heading">Pavillon</div>
     <div class="panel-body"><img src="http://i.imgur.com/BrX0Cl6.png"></div>
+  </div>
+</a>
+<a href=".#gist=b3e36eb66e43bdbbe8cd96ebfcefd277129da6a6,https://gist.github.com/2485329dea0cdd17732b225bf494342f;image=http://i.imgur.com/95eRtsN.png">
+  <div class="panel panel-default" style="float:left;margin-right: 12px;">
+    <div class="panel-heading">Checkers Lamps</div>
+    <div class="panel-body"><img src="http://i.imgur.com/xsZrVlZ.png"></div>
   </div>
 </a>
 <a href=".#gist=34c76837bc1b842da07285d533d948efb1e3c0ec,https://gist.github.com/c8407063afd1bfcb52f30ffb0332786e;image=http://i.imgur.com/C5AfoRF.png">
