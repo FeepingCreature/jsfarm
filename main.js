@@ -555,11 +555,22 @@ window["reloadPageOnSave"] = function() {
   });
 };
 
+function refreshAll(editor, theme) {
+  for (var i = 0; i < editor.files.length; ++i) {
+    var file = editor.files[i];
+    if (file.hasOwnProperty('editor')) {
+      if (typeof theme !== "undefined") file.editor.setOption('theme', theme);
+      file.editor.refresh();
+    }
+  }
+}
+
 window["SetupMainPage"] = function(containerId) {
   $('#target')[0].defaultValue = location.host+"/jsfarm";
   var dom = document.getElementById(containerId);
   var editor = dom.editor_ui;
   window["editor"] = editor;
+  $(window).on('css_changed', function() { refreshAll(editor); });
   LoadSettings();
   LoadStateFromAnchor(dom);
 };
@@ -573,15 +584,10 @@ window["SetupEmbeddedRenderWidget"] = function(containerId, ident) {
   editor.rebuildFileUi(editor.files);
   $(ident).remove();
   setupCanvasUpload(canvas);
-  $(window).on('change_editor_theme', function(editor) {
-    return function(event, str) {
-      for (var i = 0; i < editor.files.length; ++i) {
-        var file = editor.files[i];
-        if (file.hasOwnProperty('editor')) {
-          file.editor.setOption('theme', str);
-          file.editor.refresh();
-        }
-      }
-    };
-  }(editor));
+  $(window).on('css_changed', function(event) {
+    refreshAll(editor);
+  });
+  $(window).on('change_editor_theme', function(event, str) {
+    refreshAll(editor, str);
+  });
 };
