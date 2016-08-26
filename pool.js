@@ -1,5 +1,7 @@
 'use strict';
 
+var IS_WORKER = typeof importScripts === 'function';
+
 // importScripts('compile.js');
 // importScripts('files.js');
 
@@ -32,15 +34,16 @@ function is_pot(i) {
 
 var global_ram = new ArrayBuffer(1024*32768);
 
-var arraycache_float = {}; // we only use pot ranges, so this should be a low number
+// we only use pot ranges, so this should be a low number
 function get_floatarray(size) {
-  if (!arraycache_float.hasOwnProperty(size)) {
-    arraycache_float[size] = new Float32Array(size);
+  if (!get_floatarray.cache.hasOwnProperty(size)) {
+    get_floatarray.cache[size] = new Float32Array(size);
   }
-  return arraycache_float[size].fill(0);
+  return get_floatarray.cache[size].fill(0);
 }
+get_floatarray.cache = {};
 
-onmessage = function(e) {
+if (IS_WORKER) onmessage = function(e) {
   try {
     var x_from = e.data["x_from"], x_to = e.data["x_to"];
     var y_from = e.data["y_from"], y_to = e.data["y_to"];
