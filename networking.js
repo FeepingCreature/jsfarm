@@ -1093,7 +1093,7 @@ function RenderWorkset(jq, connection) {
                     if (msg.kind == 'error') {
                       // late rejection
                       if (msg.nature == 'fatal') {
-                        log(id, ": task", channel, "failed:", msg.fatal, msg.error, "(3, "+num_errors+")");
+                        log(peerinfo.label, " (", id, "): task", channel, "failed:", msg.fatal, msg.error, "(3, "+num_errors+")");
                         failTask(task);
                         if (num_errors++ > 2) {
                           log(id, ": giving up on this peer");
