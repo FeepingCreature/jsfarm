@@ -364,6 +364,8 @@ function RenderScene(jq) {
   
   window.setErrorAt = null;
   
+  var workset = new RenderWorkset(jq, window.connection);
+  
   var lines = jsource.split("\n");
   for (var i = 0; i < lines.length; ++i) {
     lines[i] = (i+1)+": "+lines[i];
@@ -371,8 +373,13 @@ function RenderScene(jq) {
   var src = $('<div class="src" style="display:none;"></div>');
   src.append($('<pre></pre>').text(lines.join("\n").replace(/\t/g, '  ')));
   var a = $('<a></a>').attr('href', '#').on('click', function(e) { e.preventDefault(); src.toggle(); }).text('Source');
+  
   var div = $('<div></div>');
-  div.append(document.createTextNode('> Rendering. (')).append(a).append(')').append(src).append('<br>');
+  
+  var render_msg = "Rendering.";
+  if (workset.connection.local) render_msg = "Rendering locally.";
+  
+  div.append(document.createTextNode('> '+render_msg+' (')).append(a).append(')').append(src).append('<br>');
   logJq(div);
   
   var canvas = jq.find('canvas')[0];
@@ -405,7 +412,6 @@ function RenderScene(jq) {
     return ctx.createImageData(width, height);
   });
   
-  var workset = new RenderWorkset(jq, window.connection);
   if (workset.connection.local) {
     jq.find('#ConnectButton').hide();
     jq.find('#DisconnectButton').hide();
