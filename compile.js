@@ -2588,29 +2588,40 @@ function can_call(thing) {
   return thing.kind == "function-poly" || thing.kind == "closure-poly" || thing.kind == "closure-pointer";
 }
 
+function makestruct_internal_stack(context, thing, rest) { return makestruct_internal(context, thing, rest, "stack"); }
+function makestruct_internal_heap (context, thing, rest) { return makestruct_internal(context, thing, rest, "heap" ); }
+function makearray_internal_stack (context, thing, rest) { return makearray_internal (context, thing, rest, "stack"); }
+function makearray_internal_heap  (context, thing, rest) { return makearray_internal (context, thing, rest, "heap" ); }
+
+EvalPrimitives_templ = {
+  'let1': let1_internal,
+  'alias1': alias1_internal,
+  'def': def_internal,
+  'set': set_internal,
+  'lambda': lambda_internal,
+  'local-lambda': lambda_internal,
+  'macro': macro_internal,
+  'if': if_internal,
+  'while': while_internal,
+  'make-struct': makestruct_internal_stack,
+  'alloc-struct': makestruct_internal_heap,
+  'make-array': makearray_internal_stack,
+  'alloc-array': makearray_internal_heap
+};
+
+EvalPrimitives = Object.create(null);
+for (var key in EvalPrimitives_templ) if (EvalPrimitives_templ.hasOwnProperty(key)) {
+  EvalPrimitives[key] = EvalPrimitives_templ[key];
+}
+
 function eval_builtin(context, thing) {
-  if (thing.kind != "list") throw "internal error";
+  if (thing.kind !== "list") throw "internal error";
   var list = thing.value;
-  if (!list.length || list[0].kind != "atom") throw "internal error";
+  if (!list.length || list[0].kind !== "atom") throw "internal error";
   var name = list[0].value;
   var rest = list.slice(1);
   
-  if (name == "let1") return let1_internal(context, thing, rest);
-  if (name == "alias1") return alias1_internal(context, thing, rest);
-  if (name == "def") return def_internal(context, thing, rest);
-  if (name == "set") return set_internal(context, thing, rest);
-  
-  if (name == "lambda" || name == "local-lambda") return lambda_internal(context, thing, rest);
-  if (name == "macro" ) return macro_internal (context, thing, rest);
-  
-  if (name == "if")    return if_internal   (context, thing, rest);
-  if (name == "while") return while_internal(context, thing, rest);
-  
-  if (name == "make-struct") return makestruct_internal(context, thing, rest, "stack");
-  if (name == "alloc-struct") return makestruct_internal(context, thing, rest, "heap");
-  
-  if (name == "make-array") return makearray_internal(context, thing, rest, "stack");
-  if (name == "alloc-array") return makearray_internal(context, thing, rest, "heap");
+  if (name in EvalPrimitives) return EvalPrimitives[name](context, thing, rest);
 }
 
 // dirty microoptimizations
