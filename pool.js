@@ -1,7 +1,7 @@
 'use strict';
 
-importScripts('compile.js');
-importScripts('files.js');
+// importScripts('compile.js');
+// importScripts('files.js');
 
 // not on the pool! don't spam! (TODO maybe when we're on our own connection?)
 function alert_(msg) {
@@ -42,12 +42,12 @@ function get_floatarray(size) {
 
 onmessage = function(e) {
   try {
-    var x_from = e.data.x_from, x_to = e.data.x_to;
-    var y_from = e.data.y_from, y_to = e.data.y_to;
-    var i_from = e.data.i_from, i_to = e.data.i_to;
-    var t_from = e.data.t_from, t_to = e.data.t_to;
-    var dw = e.data.dw, dh = e.data.dh, di = e.data.di, dt = e.data.dt;
-    var s2src = e.data.source;
+    var x_from = e.data["x_from"], x_to = e.data["x_to"];
+    var y_from = e.data["y_from"], y_to = e.data["y_to"];
+    var i_from = e.data["i_from"], i_to = e.data["i_to"];
+    var t_from = e.data["t_from"], t_to = e.data["t_to"];
+    var dw = e.data["dw"], dh = e.data["dh"], di = e.data["di"], dt = e.data["dt"];
+    var s2src = e.data["source"];
     
     if (dw > 4096 || dh > 4096 || dw < 0 || dh < 0) throw "size limits exceeded";
     
@@ -58,7 +58,7 @@ onmessage = function(e) {
     if (!is_pot(width) || !is_pot(height)) throw "render range must be power-of-two sized";
     if (width != height) throw "render range must be quadratic";
     
-    var settings = {dw: dw, dh: dh, di: di, dt: dt};
+    var settings = {'dw': dw, 'dh': dh, 'di': di, 'dt': dt};
     
     var cache_entry = null;
     for (var i = 0; i < fncache.length; ++i) {
@@ -117,16 +117,16 @@ onmessage = function(e) {
       ];
       
       var compiled = asmjs(stdlib, {
-        dw: dw,
-        dh: dh,
-        di: di,
-        dt: dt,
-        hit: hit,
-        error: function(code) { throw ("asm.js: "+errmsgs[code]); },
-        alert_: alert_,
-        isFinite: isFinite,
-        stackborder: 1024*512,
-        memory_limit: 1024*32768
+        'dw': dw,
+        'dh': dh,
+        'di': di,
+        'dt': dt,
+        'hit': hit,
+        'error': function(code) { throw ("asm.js: "+errmsgs[code]); },
+        'alert_': alert_,
+        'isFinite': isFinite,
+        'stackborder': 1024*512,
+        'memory_limit': 1024*32768
       }, global_ram);
       
       cache_entry = fncache[fncache_id++];

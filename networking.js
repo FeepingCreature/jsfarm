@@ -441,7 +441,7 @@ function ServerConnection(jq) {
   };
   this._startWorker = function(marker, index) {
     var self = this;
-    var worker = new Worker('js/pool.js');
+    var worker = new Worker('js/pool.min.js');
     
     var workerWrapper = {
       state: '',

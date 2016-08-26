@@ -20,7 +20,7 @@ function fail(thing, info) {
     && 'fail' in thing && typeof thing.fail === 'function'
   ) thing.fail(info);
   if (typeof log != "undefined") log(info);
-  throw new Error("broken "+typeof thing).stack;
+  throw "broken "+typeof thing+": "+info+" at "+new Error().stack;
 }
 
 function assert_src(thing, test) {

@@ -37,6 +37,13 @@ java -jar compiler.jar -W QUIET \
   --js_output_file="$TEMP_FDR/js/all.min.js" \
   $FILES
 
+echo "minifying pool"
+java -jar compiler.jar \
+  --create_source_map "$TEMP_FDR/js/pool.min.map" \
+  --compilation_level SIMPLE \
+  --js_output_file="$TEMP_FDR/js/pool.min.js" \
+  'compile.js' 'files.js' 'pool.js'
+
 echo "replacing existing folder"
 mv $TARGET_FDR/ $OLD_FDR/
 mv $TEMP_FDR/ $TARGET_FDR/
