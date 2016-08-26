@@ -11,7 +11,7 @@ mkdir $TEMP_FDR/css/
 find -name \*.pp |while read FILE
 do
   TARGET="${FILE%.pp}"
-  cpp -w -ffreestanding "$FILE" |grep -v ^# > "$TEMP_FDR/$TARGET"
+  cpp -C -w -ffreestanding "$FILE" |grep -v ^# > "$TEMP_FDR/$TARGET"
 done
 
 cp .htaccess $TEMP_FDR/
