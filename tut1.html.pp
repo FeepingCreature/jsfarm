@@ -362,8 +362,8 @@ Using the <i>camera</i> function will transform the scene to position the camera
        the-sky
        the-sphere
        the-stuff))
-     (scene' (fuzz (pathtrace 10 scene)))
-     (scene'' (camera (vec3f -3 2 0) (vec3f 0 0 5) scene')))
+     (scene' (camera (vec3f -3 2 0) (vec3f 0 0 5) scene))
+     (scene'' (fuzz (pathtrace 10 scene'))))
     (render scene'')))
 #include "raytracer.rl.h"
 </textarea>
@@ -425,8 +425,8 @@ At each point on its surface, the innermost object is visible.
         (color red the-sphere)
         (color green the-box))
        the-stuff))
-     (scene' (fuzz (pathtrace 10 scene)))
-     (scene'' (camera (vec3f -3 2 0) (vec3f 0 0 5) scene')))
+     (scene' (camera (vec3f -3 2 0) (vec3f 0 0 5) scene))
+     (scene'' (fuzz (pathtrace 10 scene'))))
     (render scene'')))
 #include "raytracer.rl.h"
 </textarea>
@@ -495,8 +495,8 @@ It essentially turns the object inside-out.
        the-sky
        the-weird-box-sphere-thing
        the-stuff))
-     (scene' (fuzz (pathtrace 10 scene)))
-     (scene'' (camera (vec3f -3 2 0) (vec3f 0 0 5) scene')))
+     (scene' (camera (vec3f -3 2 0) (vec3f 0 0 5) scene))
+     (scene'' (fuzz (pathtrace 10 scene'))))
     (render scene'')))
 #include "raytracer.rl.h"
 </textarea>

@@ -2712,21 +2712,21 @@ function Context(sup, js) {
     return info;
   };
   this.eval = function(thing) {
-    if (thing.kind == "expr") {
+    if (thing.kind === "expr") {
       return thing;
     }
-    if (thing.kind == "atom") {
+    if (thing.kind === "atom") {
       var res = this.lookup(thing.value);
       
-      if (typeof res != "undefined") return res;
+      if (typeof res !== "undefined") return res;
       
       // fail(thing, "Symbol '"+thing.value+"' not found."+this.info());
       fail(thing, "Symbol '"+thing.value+"' not found.");
     }
-    if (thing.kind == "quote") {
+    if (thing.kind === "quote") {
       return thing.value;
     }
-    if (thing.kind == "list") {
+    if (thing.kind === "list") {
       var list = thing.value;
       if (!list.length) thing.fail("Cannot evaluate empty list!");
       if (list[0].kind === "atom") {
