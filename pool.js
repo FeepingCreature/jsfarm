@@ -12,7 +12,15 @@ function alert_(msg) {
 
 function log() {
   var msg = Array.prototype.slice.call(arguments).join(" ");
-  // postMessage({kind: "log", message: msg});
+  if (IS_WORKER) {
+    // postMessage({kind: "log", message: msg});
+  } else {
+    var div = $('<div></div>');
+    // var t = time();
+    // div.append(((t - LogStart)/1000.0)+": ");
+    div.append(document.createTextNode('> '+msg)).append('<br>');
+    logJq(div);
+  }
 }
 
 /** @constructor */
