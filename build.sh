@@ -16,11 +16,13 @@ done
 
 cp .htaccess $TEMP_FDR/
 cp -R fonts/ $TEMP_FDR/
-cp lib/*.css css/*.css $TEMP_FDR/css/
+# cp lib/*.css $TEMP_FDR/css/
+cp css/*.css $TEMP_FDR/css/
 
-cp -R addon/ $TEMP_FDR/
+# cp -R addon/ $TEMP_FDR/
 # still needed (because source map)
-cp *.js lib/*.js $TEMP_FDR/js/
+# cp lib/*.js $TEMP_FDR/js/
+cp *.js $TEMP_FDR/js/
 
 FILES="js.cookie-2.1.0.js dom-q.js hashwords.min.js"
 FILES="$FILES renderlisp.js"

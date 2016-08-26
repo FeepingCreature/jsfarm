@@ -295,7 +295,7 @@ function LoadStateFromAnchor(dom) {
 
 $(function() {
   $(window).on('beforeunload', function() {
-    if (!window["editor"].allClean()) {
+    if ("editor" in window && !window["editor"].allClean()) {
       return "You have unsaved code! Are you sure you want to leave?";
     }
   });
