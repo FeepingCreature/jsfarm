@@ -1,4 +1,9 @@
 <textarea id=XSTR(IDENT)>
-(lambda (x y i) (vec3f 0.4 0.5 0.6))
-#include "prelude.rl.h"
+(require util nothing)
+
+(lambda ()
+  (let
+    ((scene (nothing)))
+    (render scene)))
+#include "raytracer.rl.h"
 </textarea>
