@@ -353,24 +353,17 @@ function RenderScene(jq) {
   };
   
   var jsource = "";
-  if (typeof window !== 'undefined' && window.process && window.process.type === "renderer") { // electron
-    // don't catch error, so we get a backtrace
+  
+  try {
     jsource = compile(files);
-    // to check if it actually compiles
-    // TODO emit to C
-    var fs = require('fs');
-    fs.writeFile("dump.c", jsource);
-    return;
-    new Function('stdlib', 'foreign', 'heap', jsource);
-  } else {
-    try {
-      jsource = compile(files);
+    if (typeof window !== 'undefined' && window.process && window.process.type === "renderer") { // electron
+    } else {
       // to check if it actually compiles
       new Function('stdlib', 'foreign', 'heap', jsource);
-    } catch (ex) {
-      log("Could not compile scene: "+ex);
-      return;
     }
+  } catch (ex) {
+    log("Could not compile scene: "+ex);
+    return;
   }
   
   window.setErrorAt = null;

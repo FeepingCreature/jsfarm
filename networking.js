@@ -1,5 +1,7 @@
 'use strict';
 
+var PLATFORM_ELECTRON = typeof window !== 'undefined' && window.process && window.process.type === "renderer";
+
 function setStatus(jq, msg) {
   jq.find('#StatusPanel').html(msg);
 }
@@ -307,6 +309,29 @@ function Loopback() {
 }
 
 /** @constructor */
+function ElectronWorker(jsfile) {
+  if (!PLATFORM_ELECTRON) throw "electron worker in non-electron?";
+  var child_process = require("child_process");
+  this.process = child_process.fork(jsfile);
+  this.terminate = function() {
+    this.process.kill('SIGKILL');
+  };
+  this.addEventListener = function(key, fn) {
+    var self = this;
+    if (key != "message") throw "unknown key";
+    if ('message_fn' in self) throw "message_fn already set";
+    self.message_fn = fn;
+    self.process.on('message', function(obj) {
+      self.message_fn({data: obj});
+    });
+  };
+  this.postMessageToWorker = function(obj) {
+    this.process.send({data: obj});
+  };
+  this.postMessage = this.postMessageToWorker;
+}
+
+/** @constructor */
 function ServerConnection(jq) {
   this.workers = [];
   
@@ -346,6 +371,13 @@ function ServerConnection(jq) {
       var con = task.con;
       
       wrapper.onComplete = function(data) {
+        // faster node.js ipc
+        if (typeof data === "string") {
+          if (!PLATFORM_ELECTRON) throw "what";
+          var base64 = require("base64-js");
+          data = new Float32Array(base64.toByteArray(data));
+        }
+        
         var rgbe_data = null;
         if (con instanceof LoopbackConnection) {
           rgbe_data = new Float32Array(data);
@@ -446,7 +478,13 @@ function ServerConnection(jq) {
   };
   this._startWorker = function(marker, index) {
     var self = this;
-    var worker = new Worker('js/pool.min.js');
+    var worker = null;
+    
+    if (PLATFORM_ELECTRON) {
+      worker = new ElectronWorker('web/js/pool.min.js');
+    } else {
+      worker = new Worker('js/pool.min.js');
+    }
     
     var workerWrapper = {
       state: '',

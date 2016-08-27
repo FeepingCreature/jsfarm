@@ -1,6 +1,8 @@
 'use strict';
 
+var ELECTRON_WORKER = (typeof alert === 'undefined') && (typeof process !== 'undefined');
 var PLATFORM_ELECTRON = typeof window !== 'undefined' && window.process && window.process.type === "renderer";
+PLATFORM_ELECTRON |= ELECTRON_WORKER;
 
 var STACK_DEBUG = false;
 
@@ -2002,8 +2004,8 @@ function lambda_internal(context, thing, rest) {
         ret_c_marker = "__TODO_"+unique_id("type")+"_";
         var parpairs = [];
         for (var i = 0; i < partypes.length; i++) parpairs.push(js_type_to_c(partypes[i])+" "+parnames[i]);
-        js.addLine("decls", js_type_to_c(ret_c_marker)+" "+fn+"("+parpairs.join(", ")+");");
-        js.addLine(js_type_to_c(ret_c_marker)+" "+fn+"("+parpairs.join(", ")+") {");
+        js.addLine("decls", "static "+js_type_to_c(ret_c_marker)+" "+fn+"("+parpairs.join(", ")+");");
+        js.addLine("static "+js_type_to_c(ret_c_marker)+" "+fn+"("+parpairs.join(", ")+") {");
       } else {
         js.addLine("function "+fn+"("+parnames.join(", ")+") {");
       }
@@ -2104,8 +2106,8 @@ function lambda_internal(context, thing, rest) {
       ret_c_marker = "__TODO_"+unique_id("type")+"_";
       var parpairs = [];
       for (var i = 0; i < partypes.length; i++) parpairs.push(js_type_to_c(partypes[i])+" "+parnames[i]);
-      js.addLine("decls", js_type_to_c(ret_c_marker)+" "+fn+"("+parpairs.join(", ")+");");
-      js.addLine(js_type_to_c(ret_c_marker)+" "+fn+"("+parpairs.join(", ")+") {");
+      js.addLine("decls", "static "+js_type_to_c(ret_c_marker)+" "+fn+"("+parpairs.join(", ")+");");
+      js.addLine("static "+js_type_to_c(ret_c_marker)+" "+fn+"("+parpairs.join(", ")+") {");
     } else {
       js.addLine("function "+fn+"("+parnames.join(", ")+") {");
     }
@@ -2894,7 +2896,7 @@ function emitStubFunction(js, type) {
   if (PLATFORM_ELECTRON) {
     var parpairs = [];
     for (var i = 0; i < partypes.length; i++) parpairs.push(js_type_to_c(partypes[i])+" "+parnames[i]);
-    js.addLine(js_type_to_c(js_return_type(type.ret))+" "+fn+"("+parpairs.join(", ")+") {");
+    js.addLine("static "+js_type_to_c(js_return_type(type.ret))+" "+fn+"("+parpairs.join(", ")+") {");
   } else {
     js.addLine("function "+fn+"("+parnames.join(", ")+") {");
   }
@@ -2986,8 +2988,8 @@ function FnTable() {
         var c_type = js_type_to_c(js_return_type(type.ret))+"(*"+name+"["+list.length+"])("
           + c_arg_types.join(", ")
           + ")";
-        js.addLine("decls", c_type+";");
-        js.addLine("tables", c_type+" = {"+list.join(", ")+"};");
+        js.addLine("decls", "static "+c_type+";");
+        js.addLine("tables", "static "+c_type+" = {"+list.join(", ")+"};");
       } else {
         js.addLine("tables", "var "+name+" = ["+list.join(", ")+"];");
       }
@@ -4104,9 +4106,6 @@ function compile(files) {
       "#include <stdlib.h>\n"+
       "\n"+
       "#define Infinity INFINITY\n"+
-      "#define dw 640\n"+
-      "#define dh 480\n"+
-      "#define di 4\n"+
       "#define isFinite finite\n"+
       "\n"
     );
@@ -4116,36 +4115,36 @@ function compile(files) {
     jsfile.add(
       "#define _memory_limit 32*1024*1024\n"+
       "\n"+
-      "unsigned char memory[_memory_limit];\n"+
+      "static unsigned char memory[_memory_limit];\n"+
       "\n"+
       // scratch space for vector return
-      "double _rvec_x;\n"+
-      "double _rvec_y;\n"+
-      "double _rvec_z;\n"+
-      "double _rvec_w;\n"+
+      "static double _rvec_x;\n"+
+      "static double _rvec_y;\n"+
+      "static double _rvec_z;\n"+
+      "static double _rvec_w;\n"+
       "\n"+
       // scratch space for closure pointer return
-      "int _cp_base;\n"+
-      "int _cp_offset;\n"+
+      "static int _cp_base;\n"+
+      "static int _cp_offset;\n"+
       // scratch space for array return
-      "int _r_arr_ptr;\n"+
-      "int _r_arr_sz;\n"
+      "static int _r_arr_ptr;\n"+
+      "static int _r_arr_sz;\n"
     );
     
     jsfile.openSection("variables");
     
     // backup
-    jsfile.addLine("#define stackborder (512*1024);");
+    jsfile.addLine("#define stackborder (512*1024)");
     // stack pointer
-    jsfile.addLine("int SP = stackborder;"); // grows down, underflow bounded
+    jsfile.addLine("static int SP = stackborder;"); // grows down, underflow bounded
     // heap pointer
-    jsfile.addLine("int HP = stackborder;"); // grows up, overflow bounded
+    jsfile.addLine("static int HP = stackborder;"); // grows up, overflow bounded
 
     jsfile.openSection("decls");
     
     jsfile.openSection("functions");
     
-    jsfile.addLine("int my_malloc(int size) {");
+    jsfile.addLine("static int my_malloc(int size) {");
     jsfile.indent();
     jsfile.addLine("int res = HP;");
     jsfile.addLine("HP += size;");
@@ -4333,6 +4332,7 @@ function compile(files) {
   jsfile.openSection("function");
   
   if (PLATFORM_ELECTRON) {
+    jsfile.addLine("void resetGlobals() __attribute__ ((externally_visible));");
     jsfile.addLine("void resetGlobals() {");
   } else {
     jsfile.addLine("function resetGlobals() {");
@@ -4352,7 +4352,7 @@ function compile(files) {
           var type = null;
           if (lit_int(value)) {
             if (PLATFORM_ELECTRON) {
-              jsfile.addLine("variables", "int "+jsname+" = "+js_tag_init("int", value.value)+";");
+              jsfile.addLine("variables", "static int "+jsname+" = "+js_tag_init("int", value.value)+";");
             } else {
               jsfile.addLine("variables", "var "+jsname+" = "+js_tag_init("int", value.value)+";");
             }
@@ -4360,7 +4360,7 @@ function compile(files) {
             type = "int";
           } else {
             if (PLATFORM_ELECTRON) {
-              jsfile.addLine("variables", js_type_to_c("float")+" "+jsname+" = "+js_tag_init("float", value.value)+";");
+              jsfile.addLine("variables", "static "+js_type_to_c("float")+" "+jsname+" = "+js_tag_init("float", value.value)+";");
             } else {
               jsfile.addLine("variables", "var "+jsname+" = "+js_tag_init("float", value.value)+";");
             }
@@ -4385,23 +4385,16 @@ function compile(files) {
   
   if (PLATFORM_ELECTRON) {
     jsfile.add(
-      "float sum_r = 0, sum_g = 0, sum_b = 0, count = 0, last_x = 0;\n"+
-      "void hit(int x, int y, int i, int t, double r, double g, double b) {\n"+
-      "  if (last_x != x) {\n"+
-      "    float sr = sum_r / count, sg = sum_g / count, sb = sum_b / count;\n"+
-      "    sum_r = 0; sum_g = 0; sum_b = 0; count = 0; last_x = x;\n"+
-      "    int ir = sr * 256;\n"+
-      "    int ig = sg * 256;\n"+
-      "    int ib = sb * 256;\n"+
-      "    if (ir > 255) ir = 255; if (ir < 0) ir = 0;\n"+
-      "    if (ig > 255) ig = 255; if (ig < 0) ig = 0;\n"+
-      "    if (ib > 255) ib = 255; if (ib < 0) ib = 0;\n"+
-      "    printf(\"%i %i %i\\n\", ir, ig, ib);\n"+
-      "  }\n"+
-      "  sum_r += r;\n"+
-      "  sum_g += g;\n"+
-      "  sum_b += b;\n"+
-      "  count ++;\n"+
+      "static int X_from, Y_from, I_from, T_from, X_to, Y_to, I_to, T_to;\n"+
+      "static float *Data_ptr;\n"+
+      // ignore i since it's additive
+      "static void hit(int x, int y, int i, int t, double r, double g, double b) {\n"+
+      "  int Dw = X_to - X_from, Dh = Y_to - Y_from, Dt = T_to - T_from;\n"+
+      "  int base = (x - X_from) + ((y - Y_from) * Dw) + ((t - T_from) * Dw * Dh);\n"+
+      "  if (base < 0 || base >= Dw * Dh * Dt) abort(); /* wat */\n"+
+      "  Data_ptr[base*3+0] += r;\n"+
+      "  Data_ptr[base*3+1] += g;\n"+
+      "  Data_ptr[base*3+2] += b;\n"+
       "}\n"
     );
   }
@@ -4409,8 +4402,13 @@ function compile(files) {
   jsfile.openSection("function");
   
   if (PLATFORM_ELECTRON) {
-    jsfile.addLine("void executeRange(int x_from, int y_from, int i_from, int t_from, int x_to, int y_to, int i_to, int t_to) {");
+    jsfile.addLine("void executeRange(int x_from, int y_from, int i_from, int t_from, int x_to, int y_to, int i_to, int t_to, float *data_ptr) __attribute__ ((externally_visible));");
+    jsfile.addLine("void executeRange(int x_from, int y_from, int i_from, int t_from, int x_to, int y_to, int i_to, int t_to, float *data_ptr) {");
     jsfile.indent();
+    jsfile.addLine("X_from = x_from; Y_from = y_from; I_from = i_from; T_from = t_from;");
+    jsfile.addLine("X_to = x_to; Y_to = y_to; I_to = i_to; T_to = t_to;");
+    jsfile.addLine("Data_ptr = data_ptr;");
+    jsfile.addLine("");
     jsfile.addLine("int x = 0;");
     jsfile.addLine("int y = 0;");
     jsfile.addLine("int i = 0;");
@@ -4499,8 +4497,8 @@ function compile(files) {
   if (PLATFORM_ELECTRON) {
     var parpairs = [];
     for (var i = 0; i < flattened.types.length; i++) parpairs.push(js_type_to_c(flattened.types[i])+" "+parnames[i]);
-    jsfile.addLine("decls", "void trace("+parpairs.join(", ")+");");
-    jsfile.addLine("void trace("+parpairs.join(", ")+") {");
+    jsfile.addLine("decls", "static void trace("+parpairs.join(", ")+");");
+    jsfile.addLine("static void trace("+parpairs.join(", ")+") {");
   } else {
     jsfile.addLine("function trace("+parnames.join(", ")+") {");
   }
@@ -4545,20 +4543,7 @@ function compile(files) {
   
   jsfile.emitFunctionTables();
   
-  if (PLATFORM_ELECTRON) {
-    jsfile.add(
-      "void main() {\n"+
-      "  printf(\"P3\\n\");\n"+
-      "  printf(\"#\\n\");\n"+
-      "  printf(\"%i %i\\n\", dw, dh);\n"+
-      "  printf(\"255\\n\");\n"+
-      "  \n"+
-      "  resetGlobals();\n"+
-      "  executeRange(0, 0, 0, 0, dw, dh, di, 1);\n"+
-      "  hit(0, dh, 0, 0, 0, 0, 0); // flush\n"+
-      "}\n"
-    );
-  } else {
+  if (!PLATFORM_ELECTRON) {
     jsfile.addLine("return {resetGlobals: resetGlobals, executeRange: executeRange};");
   }
   

@@ -1,6 +1,10 @@
 'use strict';
 
-var IS_WORKER = typeof importScripts === 'function';
+var WEB_WORKER = typeof importScripts === 'function';
+var ELECTRON_WORKER = (typeof alert === 'undefined') && (typeof process !== 'undefined');
+
+// if (typeof alert !== 'undefined') alert("alert: "+WEB_WORKER+", "+ELECTRON_WORKER);
+// else console.log("log: "+WEB_WORKER+", "+ELECTRON_WORKER);
 
 // importScripts('compile.js');
 // importScripts('files.js');
@@ -12,7 +16,7 @@ function alert_(msg) {
 
 function log() {
   var msg = Array.prototype.slice.call(arguments).join(" ");
-  if (IS_WORKER) {
+  if (WEB_WORKER || ELECTRON_WORKER) {
     // postMessage({kind: "log", message: msg});
   } else {
     var div = $('<div></div>');
@@ -43,15 +47,22 @@ function is_pot(i) {
 var global_ram = new ArrayBuffer(1024*32768);
 
 // we only use pot ranges, so this should be a low number
-function get_floatarray(size) {
-  if (!get_floatarray.cache.hasOwnProperty(size)) {
-    get_floatarray.cache[size] = new Float32Array(size);
+var floatarray_cache = {};
+function alloc_floatarray(size) {
+  if (!floatarray_cache.hasOwnProperty(size)) {
+    floatarray_cache[size] = [];
   }
-  return get_floatarray.cache[size].fill(0);
+  if (!floatarray_cache[size].length) {
+    floatarray_cache[size].push(new Float32Array(size));
+  }
+  return floatarray_cache[size].pop().fill(0);
 }
-get_floatarray.cache = {};
+function free_floatarray(array) {
+  var size = array.length;
+  floatarray_cache[size].push(array);
+}
 
-if (IS_WORKER) onmessage = function(e) {
+function workerHandleMessage(e, postMessage) {
   try {
     var x_from = e.data["x_from"], x_to = e.data["x_to"];
     var y_from = e.data["y_from"], y_to = e.data["y_to"];
@@ -82,69 +93,121 @@ if (IS_WORKER) onmessage = function(e) {
     if (!cache_entry) {
       var files = splitSrc(s2src);
       var jssrc = compile(files);
-      var asmjs = new Function('stdlib', 'foreign', 'heap', jssrc);
-      files = null; jssrc = null;
       
       var config = {};
       
-      // i is ignored - we make the safe assumption that you'll just pass every i in the range once
-      var hit = function(x, y, i, t, r, g, b) {
-        config.count++;
+      if (ELECTRON_WORKER) {
+        var crypto = require('crypto');
+        var fs = require('fs');
+        var child_process = require('child_process')
+        var ref = require("ref"), ffi = require("ffi");
         
-        var width = config.x_to - config.x_from;
-        var tm = Date.now();
-        if (tm - config.last_tm > 1000) {
-          var height = config.y_to - config.y_from;
-          var progress = config.count / (width * height);
-          postMessage({kind: "progress", progress: progress});
-          config.last_tm = tm;
+        var hash = crypto.createHash('sha256');
+        hash.update(JSON.stringify(settings));
+        hash.update(jssrc);
+        hash = hash.digest('hex');
+        
+        var src_name = "out/jsfarm_"+hash+".c";
+        var bin_name = "out/jsfarm_"+hash+".so";
+        
+        // double-check
+        if (!fs.existsSync(bin_name)) {
+          // busyspin to take lock
+          while (true) {
+            try {
+              var fd = fs.openSync("out/.lock", 'wx');
+              fs.closeSync(fd);
+              break;
+            } catch(err) { }
+          }
+          if (!fs.existsSync(bin_name)) {
+            fs.writeFileSync(src_name, jssrc);
+            var res = child_process.spawnSync("gcc", ["-O3", "-ffast-math", "-march=native", "-fwhole-program", "-lm", "-shared", "-fPIC", src_name, "-o", bin_name,
+                                                      "-Ddw="+settings.dw, "-Ddh="+settings.dh, "-Ddi="+settings.di, "-Ddt="+settings.dt]);
+            
+            fs.unlinkSync("out/.lock"); // release lock
+            
+            if (res.status != 0) {
+              throw "compilation failed";
+            }
+          }
         }
         
-        var base = (y - config.y_from) * width + (x - config.x_from);
-        var array = config.array;
-        if (base >= 0 && base < array.length) {
-          // don't limit intensity per ray to 0..1
-          // array[base*3 + 0] += Math.max(0, Math.min(1, r));
-          // array[base*3 + 1] += Math.max(0, Math.min(1, g));
-          // array[base*3 + 2] += Math.max(0, Math.min(1, b));
-          array[base*3 + 0] += r;
-          array[base*3 + 1] += g;
-          array[base*3 + 2] += b;
-        }
-      };
-      
-      var stdlib = {
-        Infinity: Infinity,
-        Math: Math,
-        Int32Array: Int32Array,
-        Float32Array: Float32Array,
-        Float64Array: Float64Array
-      };
-      
-      var errmsgs = [
-        "Internal error: stub function called!",
-        "Available memory exceeded!",
-        "Numeric error: NaN found!"
-      ];
-      
-      var compiled = asmjs(stdlib, {
-        'dw': dw,
-        'dh': dh,
-        'di': di,
-        'dt': dt,
-        'hit': hit,
-        'error': function(code) { throw ("asm.js: "+errmsgs[code]); },
-        'alert_': alert_,
-        'isFinite': isFinite,
-        'stackborder': 1024*512,
-        'memory_limit': 1024*32768
-      }, global_ram);
+        var lib = ffi.Library(bin_name, {
+          'resetGlobals': ['void', [] ],
+          'executeRange': ['void', ['int', 'int', 'int', 'int', 'int', 'int', 'int', 'int', ref.refType(ref.types.float)] ]
+        });
+        
+        var compiled = {
+          resetGlobals: function() { lib.resetGlobals(); },
+          executeRange: function(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to) {
+            // TODO progress somehow?
+            lib.executeRange(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to, new Buffer(config.array.buffer));
+          }
+        };
+      } else {
+        var asmjs = new Function('stdlib', 'foreign', 'heap', jssrc);
+        files = null; jssrc = null;
+        
+        // i is ignored - we make the safe assumption that you'll just pass every i in the range once
+        var hit = function(x, y, i, t, r, g, b) {
+          config.count++;
+          
+          var width = config.x_to - config.x_from;
+          var tm = Date.now();
+          if (tm - config.last_tm > 1000) {
+            var height = config.y_to - config.y_from;
+            var progress = config.count / (width * height);
+            postMessage({kind: "progress", progress: progress});
+            config.last_tm = tm;
+          }
+          
+          var base = (y - config.y_from) * width + (x - config.x_from);
+          var array = config.array;
+          if (base >= 0 && base < array.length) {
+            // don't limit intensity per ray to 0..1
+            // array[base*3 + 0] += Math.max(0, Math.min(1, r));
+            // array[base*3 + 1] += Math.max(0, Math.min(1, g));
+            // array[base*3 + 2] += Math.max(0, Math.min(1, b));
+            array[base*3 + 0] += r;
+            array[base*3 + 1] += g;
+            array[base*3 + 2] += b;
+          }
+        };
+        
+        var stdlib = {
+          Infinity: Infinity,
+          Math: Math,
+          Int32Array: Int32Array,
+          Float32Array: Float32Array,
+          Float64Array: Float64Array
+        };
+        
+        var errmsgs = [
+          "Internal error: stub function called!",
+          "Available memory exceeded!",
+          "Numeric error: NaN found!"
+        ];
+        
+        var compiled = asmjs(stdlib, {
+          'dw': dw,
+          'dh': dh,
+          'di': di,
+          'dt': dt,
+          'hit': hit,
+          'error': function(code) { throw ("asm.js: "+errmsgs[code]); },
+          'alert_': alert_,
+          'isFinite': isFinite,
+          'stackborder': 1024*512,
+          'memory_limit': 1024*32768
+        }, global_ram);
+      }
       
       cache_entry = fncache[fncache_id++];
       fncache_id = fncache_id % fncache.length;
-      cache_entry.fn = function(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to) {
+      cache_entry.fn = function(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to, postMessage) {
         var size = 3 * (x_to - x_from) * (y_to - y_from) * (t_to - t_from);
-        var array = get_floatarray(size);
+        var array = alloc_floatarray(size);
         
         config.array = array;
         config.x_from = x_from;
@@ -163,19 +226,29 @@ if (IS_WORKER) onmessage = function(e) {
         
         compiled.executeRange(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to);
         
+        var data = array;
+        if (ELECTRON_WORKER) {
+          var base64 = require("base64-js");
+          data = base64.fromByteArray(new Uint8Array(data));
+        }
+        
         postMessage({
           kind: "finish",
           x_from: x_from, y_from: y_from, i_from: i_from, t_from: t_from,
           x_to  : x_to  , y_to  : y_to  , i_to  : i_to  , t_to  : t_to  ,
-          data: array
+          data: data
         });
+        free_floatarray(array);
       };
       cache_entry.source = s2src;
       cache_entry.settings = settings;
     }
     
-    cache_entry.fn(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to);
+    cache_entry.fn(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to, postMessage);
   } catch (err) {
     postMessage({kind: "error", error: err.toString()});
   }
-};
+}
+
+if (ELECTRON_WORKER) process.on('message', function(e) { return workerHandleMessage(e, process.send.bind(process)); });
+else if (WEB_WORKER) onmessage = function(e) { return workerHandleMessage(e, postMessage); };
