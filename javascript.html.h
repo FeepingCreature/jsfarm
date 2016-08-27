@@ -1,4 +1,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/2.2.4/jquery.min.js"></script> 
+<script type="text/javascript">
+  if (typeof window !== 'undefined' && window.process && window.process.type === "renderer") { // electron
+    window.$ = window.jQuery = module.exports;
+  }
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.18.2/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.18.2/addon/edit/matchbrackets.min.js"></script>

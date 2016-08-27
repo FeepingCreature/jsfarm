@@ -1,5 +1,7 @@
 'use strict';
 
+var PLATFORM_ELECTRON = typeof window !== 'undefined' && window.process && window.process.type === "renderer";
+
 var STACK_DEBUG = false;
 
 Error.stackTraceLimit=undefined;
@@ -37,6 +39,12 @@ function unique_id_for(thing, name) {
     thing.uniqid = unique_id(name);
   }
   return thing.uniqid;
+}
+
+function js_type_to_c(type) {
+  if (type == "float") return "double";
+  if (type == "bool") return "int";
+  return type;
 }
 
 function filter_string(str) {
@@ -120,15 +128,18 @@ function str_is_int(arg) {
 }
 
 function coerce_int(arg) {
-  if (typeof arg == "string" && arg.slice(0, 2) == "__") { /* replaced with integer later */
+  if (typeof arg === "string" && arg.slice(0, 2) == "__") { /* replaced with integer later */
     return arg;
   }
   // like fround(1)
-  if (arg.slice(0, 7) == "fround(" && arg.slice(-1) == ")" && isFloat(arg.slice(7, -1))) {
+  if (typeof arg === "string" && arg.slice(0, 7) == "fround(" && arg.slice(-1) == ")" && isFloat(arg.slice(7, -1))) {
     arg = arg.slice(7, -1);
   }
   if (isFloat(arg)) {
     return ""+(~~(parseFloat(arg, 10)));
+  }
+  if (PLATFORM_ELECTRON) {
+    return "(int)"+paren_maybe(arg);
   }
   return "~~"+paren_maybe(arg, "~");
 }
@@ -193,6 +204,18 @@ function js_tag(type, value) {
       type = value.type;
       value = value.value;
     } else throw "how tag "+value.kind;
+  }
+  if (PLATFORM_ELECTRON) {
+    if (type == "float") return "(double)"+paren_maybe(value);
+    if (type == "double") return "(double)"+paren_maybe(value);
+    if (type == "int") return "(int)"+paren_maybe(value);
+    if (type == "bool") {
+      if (typeof value == "boolean") {
+        if (value) return "1";
+        else return "0";
+      }
+      return "(int)"+paren_maybe(value);
+    }
   }
   if (type == "float") return "+"+paren_maybe(value, "+");
   // if (type == "float") return "fround("+value+")";
@@ -336,22 +359,34 @@ function js_get_at(type, base, offs) {
     }
   }
   
-  var shift = null, stackvar = null;
-  if (type == "float") {
-    shift = 2;
-    stackvar = "mem_f32";
-  } else if (type == "int" || type == "bool") {
-    shift = 2;
-    stackvar = "mem_i32";
-  } else fail(null, "unimplemented js_get_at(type="+JSON.stringify(type)+", base="+JSON.stringify(base)+", offs="+offs+")");
-  
   var target = null;
-  if (offs === 0) {
-    target = stackvar+"["+paren_maybe(js_tag(base), ">>")+" >> "+shift+"]";
-  } else if (typeof offs == "number") {
-    target = stackvar+"["+paren_maybe(js_op(null, "+", js_tag(base), offs), ">>")+" >> "+shift+"]";
+  if (PLATFORM_ELECTRON) {
+    var c_type = type;
+    if (type == "bool") c_type = "int";
+    if (offs === 0) {
+      target = "*("+c_type+"*) (memory + "+js_tag(base)+")";
+    } else if (typeof offs == "number") {
+      target = "*("+c_type+"*) (memory + "+paren_maybe(js_op(null, "+", js_tag(base), offs), "+")+")";
+    } else {
+      target = "*("+c_type+"*) (memory + "+paren_maybe(js_op(null, "+", js_tag(base), js_tag(offs)), "+")+")";
+    }
   } else {
-    target = stackvar+"["+paren_maybe(js_op(null, "+", js_tag(base), js_tag(offs)), ">>")+" >> "+shift+"]";
+    var shift = null, stackvar = null;
+    if (type == "float") {
+      shift = 2;
+      stackvar = "mem_f32";
+    } else if (type == "int" || type == "bool") {
+      shift = 2;
+      stackvar = "mem_i32";
+    } else fail(null, "unimplemented js_get_at(type="+JSON.stringify(type)+", base="+JSON.stringify(base)+", offs="+offs+")");
+    
+    if (offs === 0) {
+      target = stackvar+"["+paren_maybe(js_tag(base), ">>")+" >> "+shift+"]";
+    } else if (typeof offs == "number") {
+      target = stackvar+"["+paren_maybe(js_op(null, "+", js_tag(base), offs), ">>")+" >> "+shift+"]";
+    } else {
+      target = stackvar+"["+paren_maybe(js_op(null, "+", js_tag(base), js_tag(offs)), ">>")+" >> "+shift+"]";
+    }
   }
   
   suspect(target);
@@ -393,7 +428,9 @@ function js_op(type, op, a, b) {
     }
   }
   var res = null;
-  if (type == "int" && op == "*") {
+  if (op == ">>>" && PLATFORM_ELECTRON) {
+    res = "(unsigned int)("+a+") >> "+b;
+  } else if (type == "int" && op == "*" && !PLATFORM_ELECTRON) {
     res = "imul("+a+", "+b+")";
   } else {
     res = a+" "+op+" "+b;
@@ -1959,7 +1996,17 @@ function lambda_internal(context, thing, rest) {
       // for inserting in the "functions" section of the module
       js.openSection("function", "functions");
       js.addLine("// signature: "+signature);
-      js.addLine("function "+fn+"("+parnames.join(", ")+") {");
+      
+      var ret_c_marker = null;
+      if (PLATFORM_ELECTRON) {
+        ret_c_marker = "__TODO_"+unique_id("type")+"_";
+        var parpairs = [];
+        for (var i = 0; i < partypes.length; i++) parpairs.push(js_type_to_c(partypes[i])+" "+parnames[i]);
+        js.addLine("decls", js_type_to_c(ret_c_marker)+" "+fn+"("+parpairs.join(", ")+");");
+        js.addLine(js_type_to_c(ret_c_marker)+" "+fn+"("+parpairs.join(", ")+") {");
+      } else {
+        js.addLine("function "+fn+"("+parnames.join(", ")+") {");
+      }
       js.indent();
       if (STACK_DEBUG) js.addLine("check_start();");
       
@@ -2020,6 +2067,9 @@ function lambda_internal(context, thing, rest) {
       js.unindent();
       js.addLine("}");
       
+      if (PLATFORM_ELECTRON) {
+        js.replace(ret_c_marker, js_type_to_c(js_return_type(ret_type)));
+      }
       
       var fun = js.popSection("function");
       js.add("functions", fun);
@@ -2049,7 +2099,16 @@ function lambda_internal(context, thing, rest) {
     
     // for inserting in the "functions" section of the module
     js.openSection("function", "functions");
-    js.addLine("function "+fn+"("+parnames.join(", ")+") {");
+    var ret_c_marker = null;
+    if (PLATFORM_ELECTRON) {
+      ret_c_marker = "__TODO_"+unique_id("type")+"_";
+      var parpairs = [];
+      for (var i = 0; i < partypes.length; i++) parpairs.push(js_type_to_c(partypes[i])+" "+parnames[i]);
+      js.addLine("decls", js_type_to_c(ret_c_marker)+" "+fn+"("+parpairs.join(", ")+");");
+      js.addLine(js_type_to_c(ret_c_marker)+" "+fn+"("+parpairs.join(", ")+") {");
+    } else {
+      js.addLine("function "+fn+"("+parnames.join(", ")+") {");
+    }
     js.indent();
     if (STACK_DEBUG) js.addLine("check_start();");
     
@@ -2094,6 +2153,10 @@ function lambda_internal(context, thing, rest) {
     
     js.unindent();
     js.addLine("}");
+    
+    if (PLATFORM_ELECTRON) {
+      js.replace(ret_c_marker, js_type_to_c(js_return_type(ret_type)));
+    }
     
     var fun = js.popSection("function");
     js.add("functions", fun);
@@ -2494,7 +2557,8 @@ function make_struct_on(location, context, thing, names, values) {
   } else if (location == "heap") {
     if (context.js) {
       // heap grows up
-      base = context.js.mkVar("malloc("+res.type.size+")", "int", "struct_base");
+      var malloc = PLATFORM_ELECTRON?"my_malloc":"malloc";
+      base = context.js.mkVar(malloc+"("+res.type.size+")", "int", "struct_base");
       // base = context.js.mkVar("HP", "int", "struct_base");
       // context.js.set("int", "HP", js_op("int", "+", "HP", res.type.size));
     }
@@ -2578,7 +2642,8 @@ function makearray_internal(context, thing, rest, location) {
     context.js.set("int", "SP", js_op("int", "-", "SP", js_tag(total_len)));
     arr_ptr = context.js.mkVar("SP", "int", "array_base");
   } else if (location == "heap") {
-    arr_ptr = context.js.mkVar("malloc("+js_tag(total_len)+")", "int", "array_base");
+    var malloc = PLATFORM_ELECTRON?"my_malloc":"malloc";
+    arr_ptr = context.js.mkVar(malloc+"("+js_tag(total_len)+")", "int", "array_base");
   } else throw ("internal error "+location);
   
   return new RLArray(arrtype, arr_ptr, size);
@@ -2803,7 +2868,7 @@ function Context(sup, js) {
 
 function js_return_type(type) {
   if (type == "int" || type == "float" || type == "bool" || type == "void") return type;
-  if (type.kind == "closure" || type.kind == "vector" || type.kind == "array") {
+  if (type.kind == "closure" || type.kind == "vector" || type.kind == "array" || type.kind == "closure-poly") {
     return "void"; // passed in globals
   }
   if (type.kind == "pointer") {
@@ -2826,14 +2891,24 @@ function emitStubFunction(js, type) {
   var fn = js.allocName("f", "stub");
   
   js.openSection("function", "functions");
-  js.addLine("function "+fn+"("+parnames.join(", ")+") {");
+  if (PLATFORM_ELECTRON) {
+    var parpairs = [];
+    for (var i = 0; i < partypes.length; i++) parpairs.push(js_type_to_c(partypes[i])+" "+parnames[i]);
+    js.addLine(js_type_to_c(js_return_type(type.ret))+" "+fn+"("+parpairs.join(", ")+") {");
+  } else {
+    js.addLine("function "+fn+"("+parnames.join(", ")+") {");
+  }
   js.indent();
   
   for (var i = 0; i < partypes.length; ++i) {
     js.set(partypes[i], parnames[i], parnames[i]);
   }
   
-  js.addLine("error(0);");
+  if (PLATFORM_ELECTRON) {
+    js.addLine("abort();");
+  } else {
+    js.addLine("error(0);");
+  }
   
   var js_type = js_return_type(type.ret);
   
@@ -2902,7 +2977,20 @@ function FnTable() {
       }
       
       var mask = list.length - 1;
-      js.addLine("tables", "var "+name+" = ["+list.join(", ")+"];");
+      if (PLATFORM_ELECTRON) {
+        var c_arg_types = [];
+        var js_types = flatten_type_array(type.args).js_types;
+        for (var i = 0; i < js_types.length; i++) {
+          c_arg_types.push(js_type_to_c(js_types[i]));
+        }
+        var c_type = js_type_to_c(js_return_type(type.ret))+"(*"+name+"["+list.length+"])("
+          + c_arg_types.join(", ")
+          + ")";
+        js.addLine("decls", c_type+";");
+        js.addLine("tables", c_type+" = {"+list.join(", ")+"};");
+      } else {
+        js.addLine("tables", "var "+name+" = ["+list.join(", ")+"];");
+      }
       js.replace(maskid, ""+mask);
     }
   };
@@ -3041,7 +3129,11 @@ function JsFile() {
     else if (type == "bool") sample = "0";
     else throw ("how init "+type+"?");
     
-    this.addLine(location, "var "+name+" = "+sample+";");
+    if (PLATFORM_ELECTRON) {
+      this.addLine(location, js_type_to_c(type)+" "+name+";");
+    } else {
+      this.addLine(location, "var "+name+" = "+sample+";");
+    }
     
     if (value != null) {
       this.set(type, name, value);
@@ -3371,7 +3463,8 @@ function setupSysctx() {
     if (!js) {
       return {kind: "frame", entries: {}};
     }
-    var base = js.mkVar("malloc(__FRAME_SIZE__)", "int", "frame_base");
+    var malloc = PLATFORM_ELECTRON?"my_malloc":"malloc";
+    var base = js.mkVar(malloc+"(__FRAME_SIZE__)", "int", "frame_base");
     // var base = js.mkVar("HP", "int", "frame_base");
     // js.set("int", "HP", js_op("int", "+", "HP", "__FRAME_SIZE__"));
     var frame_obj = {
@@ -3912,7 +4005,7 @@ function setupSysctx() {
     if (lit_float(x)) {
       return {kind: "expr", type: "float", value: +(x.value >>> 0)};
     }
-    return context.js.mkVar(js_tag("float", paren_maybe(js_tag(x), ">>>")+" >>> 0"), "float", "u2f");
+    return context.js.mkVar(js_op("float", ">>>", js_tag(x), "0"), "float", "u2f");
   });
   
   defun(sysctx, "typeof", 1, function(context, thing, value) {
@@ -4004,104 +4097,167 @@ function compile(files) {
   
   jsfile.openSection("module");
   
-  jsfile.addLine("\"use asm\";");
-  
-  jsfile.openSection("globals");
-  
-  jsfile.add(
-    "var sqrt = stdlib.Math.sqrt;\n"+
-    "var abs = stdlib.Math.abs;\n"+
-    "var pow = stdlib.Math.pow;\n"+
-    "var sin = stdlib.Math.sin;\n"+
-    "var cos = stdlib.Math.cos;\n"+
-    "var tan = stdlib.Math.tan;\n"+
-    "var asin = stdlib.Math.asin;\n"+
-    "var acos = stdlib.Math.acos;\n"+
-    "var atan2 = stdlib.Math.atan2;\n"+
-    "var imul = stdlib.Math.imul;\n"+
-    "var floor = stdlib.Math.floor;\n"+
-    "var fround = stdlib.Math.fround;\n"+
-    "\n"+
-    "var Infinity = stdlib.Infinity;\n"+
-    "var Int32Array = stdlib.Int32Array;\n"+
-    "var Float32Array = stdlib.Float32Array;\n"+
-    "var Float64Array = stdlib.Float64Array;\n"+
-    "\n"+
-    "var alert_ = foreign.alert_;\n"+
-    "var error = foreign.error;\n"+
-    "var isFinite = foreign.isFinite;\n"+
-    "var hit = foreign.hit;\n"+
-    "var dw = foreign.dw|0;\n"+
-    "var dh = foreign.dh|0;\n"+
-    "var di = foreign.di|0;\n"+
-    "var _memory_limit = foreign.memory_limit|0;\n"+
-    "\n"+
-    "var mem_i32 = new Int32Array(heap);\n"+
-    "var mem_f32 = new Float32Array(heap);\n"+
-    "\n"+
-    // scratch space for vector return
-    "var _rvec_x = "+tagf_init(0)+";\n"+
-    "var _rvec_y = "+tagf_init(0)+";\n"+
-    "var _rvec_z = "+tagf_init(0)+";\n"+
-    "var _rvec_w = "+tagf_init(0)+";\n"+
-    "\n"+
-    // scratch space for closure pointer return
-    "var _cp_base = 0;\n"+
-    "var _cp_offset = 0;\n"+
-    // scratch space for array return
-    "var _r_arr_ptr = 0;\n"+
-    "var _r_arr_sz = 0;\n");
-  jsfile.openSection("variables");
-  
-  // stack pointer
-  jsfile.addLine("var SP = foreign.stackborder|0;"); // grows down, underflow bounded
-  // heap pointer
-  jsfile.addLine("var HP = foreign.stackborder|0;"); // grows up, overflow bounded
-  // backup
-  jsfile.addLine("var stackborder = foreign.stackborder|0;");
-  
-  if (STACK_DEBUG) {
-    jsfile.addLine("var stackdepth = 0;");
-    jsfile.addLine("var check_start = function() {"
-      +"if (stackdepth > 100) debugger;"
-      +"stackdepth ++;"
-    +"};");
-    jsfile.addLine("var check_end = function() {"
-      +"stackdepth --;"
-    +"};");
+  if (PLATFORM_ELECTRON) {
+    jsfile.add(
+      "#include <math.h>\n"+
+      "#include <stdio.h>\n"+
+      "#include <stdlib.h>\n"+
+      "\n"+
+      "#define Infinity INFINITY\n"+
+      "#define dw 640\n"+
+      "#define dh 480\n"+
+      "#define di 4\n"+
+      "#define isFinite finite\n"+
+      "\n"
+    );
+    
+    jsfile.openSection("globals");
+    
+    jsfile.add(
+      "#define _memory_limit 32*1024*1024\n"+
+      "\n"+
+      "unsigned char memory[_memory_limit];\n"+
+      "\n"+
+      // scratch space for vector return
+      "double _rvec_x;\n"+
+      "double _rvec_y;\n"+
+      "double _rvec_z;\n"+
+      "double _rvec_w;\n"+
+      "\n"+
+      // scratch space for closure pointer return
+      "int _cp_base;\n"+
+      "int _cp_offset;\n"+
+      // scratch space for array return
+      "int _r_arr_ptr;\n"+
+      "int _r_arr_sz;\n"
+    );
+    
+    jsfile.openSection("variables");
+    
+    // backup
+    jsfile.addLine("#define stackborder (512*1024);");
+    // stack pointer
+    jsfile.addLine("int SP = stackborder;"); // grows down, underflow bounded
+    // heap pointer
+    jsfile.addLine("int HP = stackborder;"); // grows up, overflow bounded
+
+    jsfile.openSection("decls");
+    
+    jsfile.openSection("functions");
+    
+    jsfile.addLine("int my_malloc(int size) {");
+    jsfile.indent();
+    jsfile.addLine("int res = HP;");
+    jsfile.addLine("HP += size;");
+    jsfile.addLine("if (HP > _memory_limit) {");
+    jsfile.indent();
+    jsfile.addLine("abort();");
+    jsfile.unindent();
+    jsfile.addLine("}");
+    jsfile.addLine("return res;");
+    jsfile.unindent();
+    jsfile.addLine("}");
+  } else {
+    jsfile.addLine("\"use asm\";");
+    
+    jsfile.openSection("globals");
+    
+    jsfile.add(
+      "var sqrt = stdlib.Math.sqrt;\n"+
+      "var abs = stdlib.Math.abs;\n"+
+      "var pow = stdlib.Math.pow;\n"+
+      "var sin = stdlib.Math.sin;\n"+
+      "var cos = stdlib.Math.cos;\n"+
+      "var tan = stdlib.Math.tan;\n"+
+      "var asin = stdlib.Math.asin;\n"+
+      "var acos = stdlib.Math.acos;\n"+
+      "var atan2 = stdlib.Math.atan2;\n"+
+      "var imul = stdlib.Math.imul;\n"+
+      "var floor = stdlib.Math.floor;\n"+
+      "var fround = stdlib.Math.fround;\n"+
+      "\n"+
+      "var Infinity = stdlib.Infinity;\n"+
+      "var Int32Array = stdlib.Int32Array;\n"+
+      "var Float32Array = stdlib.Float32Array;\n"+
+      "var Float64Array = stdlib.Float64Array;\n"+
+      "\n"+
+      "var alert_ = foreign.alert_;\n"+
+      "var error = foreign.error;\n"+
+      "var isFinite = foreign.isFinite;\n"+
+      "var hit = foreign.hit;\n"+
+      "var dw = foreign.dw|0;\n"+
+      "var dh = foreign.dh|0;\n"+
+      "var di = foreign.di|0;\n"+
+      "var _memory_limit = foreign.memory_limit|0;\n"+
+      "\n"+
+      "var mem_i32 = new Int32Array(heap);\n"+
+      "var mem_f32 = new Float32Array(heap);\n"+
+      "\n"+
+      // scratch space for vector return
+      "var _rvec_x = "+tagf_init(0)+";\n"+
+      "var _rvec_y = "+tagf_init(0)+";\n"+
+      "var _rvec_z = "+tagf_init(0)+";\n"+
+      "var _rvec_w = "+tagf_init(0)+";\n"+
+      "\n"+
+      // scratch space for closure pointer return
+      "var _cp_base = 0;\n"+
+      "var _cp_offset = 0;\n"+
+      // scratch space for array return
+      "var _r_arr_ptr = 0;\n"+
+      "var _r_arr_sz = 0;\n");
+    
+    jsfile.openSection("variables");
+    
+    // stack pointer
+    jsfile.addLine("var SP = foreign.stackborder|0;"); // grows down, underflow bounded
+    // heap pointer
+    jsfile.addLine("var HP = foreign.stackborder|0;"); // grows up, overflow bounded
+    // backup
+    jsfile.addLine("var stackborder = foreign.stackborder|0;");
+    
+    if (STACK_DEBUG) {
+      jsfile.addLine("var stackdepth = 0;");
+      jsfile.addLine("var check_start = function() {"
+        +"if (stackdepth > 100) debugger;"
+        +"stackdepth ++;"
+      +"};");
+      jsfile.addLine("var check_end = function() {"
+        +"stackdepth --;"
+      +"};");
+    }
+    
+    jsfile.openSection("functions");
+    
+    jsfile.addLine("function malloc(size) {");
+    jsfile.indent();
+    jsfile.addLine("size = size | 0;");
+    jsfile.addLine("");
+    jsfile.addLine("var res = 0;");
+    jsfile.addLine("");
+    jsfile.addLine("res = HP | 0;");
+    jsfile.addLine("HP = ((HP|0) + (size|0))|0;");
+    jsfile.addLine("if ((HP|0) > (_memory_limit|0)) {");
+    jsfile.indent();
+    jsfile.addLine("error(1);");
+    jsfile.unindent();
+    jsfile.addLine("}");
+    jsfile.addLine("return res|0;");
+    jsfile.unindent();
+    jsfile.addLine("}");
+    
+    jsfile.addLine("function nancheck(f) {");
+    jsfile.indent();
+    jsfile.addLine("f = +f;");
+    jsfile.addLine("");
+    jsfile.addLine("if ((+f) != (+f)) {");
+    jsfile.indent();
+    jsfile.addLine("error(2);");
+    jsfile.unindent();
+    jsfile.addLine("}");
+    jsfile.addLine("return +f;");
+    jsfile.unindent();
+    jsfile.addLine("}");
   }
-  
-  jsfile.openSection("functions");
-  
-  jsfile.addLine("function malloc(size) {");
-  jsfile.indent();
-  jsfile.addLine("size = size | 0;");
-  jsfile.addLine("");
-  jsfile.addLine("var res = 0;");
-  jsfile.addLine("");
-  jsfile.addLine("res = HP | 0;");
-  jsfile.addLine("HP = ((HP|0) + (size|0))|0;");
-  jsfile.addLine("if ((HP|0) > (_memory_limit|0)) {");
-  jsfile.indent();
-  jsfile.addLine("error(1);");
-  jsfile.unindent();
-  jsfile.addLine("}");
-  jsfile.addLine("return res|0;");
-  jsfile.unindent();
-  jsfile.addLine("}");
-  
-  jsfile.addLine("function nancheck(f) {");
-  jsfile.indent();
-  jsfile.addLine("f = +f;");
-  jsfile.addLine("");
-  jsfile.addLine("if ((+f) != (+f)) {");
-  jsfile.indent();
-  jsfile.addLine("error(2);");
-  jsfile.unindent();
-  jsfile.addLine("}");
-  jsfile.addLine("return +f;");
-  jsfile.unindent();
-  jsfile.addLine("}");
   
   var get_context_and_eval_for_file = null;
   
@@ -4175,7 +4331,13 @@ function compile(files) {
   // log("bake");
   
   jsfile.openSection("function");
-  jsfile.addLine("function resetGlobals() {");
+  
+  if (PLATFORM_ELECTRON) {
+    jsfile.addLine("void resetGlobals() {");
+  } else {
+    jsfile.addLine("function resetGlobals() {");
+  }
+  
   jsfile.indent();
   
   for (var i = 0; i < context_list.length; ++i) {
@@ -4189,11 +4351,19 @@ function compile(files) {
           // log("baking "+jsname);
           var type = null;
           if (lit_int(value)) {
-            jsfile.addLine("variables", "var "+jsname+" = "+js_tag_init("int", value.value)+";");
+            if (PLATFORM_ELECTRON) {
+              jsfile.addLine("variables", "int "+jsname+" = "+js_tag_init("int", value.value)+";");
+            } else {
+              jsfile.addLine("variables", "var "+jsname+" = "+js_tag_init("int", value.value)+";");
+            }
             jsfile.set("int", jsname, js_tag_init("int", value.value));
             type = "int";
           } else {
-            jsfile.addLine("variables", "var "+jsname+" = "+js_tag_init("float", value.value)+";");
+            if (PLATFORM_ELECTRON) {
+              jsfile.addLine("variables", js_type_to_c("float")+" "+jsname+" = "+js_tag_init("float", value.value)+";");
+            } else {
+              jsfile.addLine("variables", "var "+jsname+" = "+js_tag_init("float", value.value)+";");
+            }
             jsfile.set("float", jsname, js_tag_init("float", value.value));
             type = "float";
           }
@@ -4213,25 +4383,61 @@ function compile(files) {
   
   var main_fn = main.obj;
   
+  if (PLATFORM_ELECTRON) {
+    jsfile.add(
+      "float sum_r = 0, sum_g = 0, sum_b = 0, count = 0, last_x = 0;\n"+
+      "void hit(int x, int y, int i, int t, double r, double g, double b) {\n"+
+      "  if (last_x != x) {\n"+
+      "    float sr = sum_r / count, sg = sum_g / count, sb = sum_b / count;\n"+
+      "    sum_r = 0; sum_g = 0; sum_b = 0; count = 0; last_x = x;\n"+
+      "    int ir = sr * 256;\n"+
+      "    int ig = sg * 256;\n"+
+      "    int ib = sb * 256;\n"+
+      "    if (ir > 255) ir = 255; if (ir < 0) ir = 0;\n"+
+      "    if (ig > 255) ig = 255; if (ig < 0) ig = 0;\n"+
+      "    if (ib > 255) ib = 255; if (ib < 0) ib = 0;\n"+
+      "    printf(\"%i %i %i\\n\", ir, ig, ib);\n"+
+      "  }\n"+
+      "  sum_r += r;\n"+
+      "  sum_g += g;\n"+
+      "  sum_b += b;\n"+
+      "  count ++;\n"+
+      "}\n"
+    );
+  }
+  
   jsfile.openSection("function");
-  jsfile.addLine("function executeRange(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to) {");
-  jsfile.indent();
-  jsfile.addLine("x_from = x_from|0;");
-  jsfile.addLine("y_from = y_from|0;");
-  jsfile.addLine("i_from = i_from|0;");
-  jsfile.addLine("t_from = t_from|0;");
-  jsfile.addLine("x_to = x_to|0;");
-  jsfile.addLine("y_to = y_to|0;");
-  jsfile.addLine("i_to = i_to|0;");
-  jsfile.addLine("t_to = t_to|0;");
   
-  jsfile.addLine("var x = 0;");
-  jsfile.addLine("var y = 0;");
-  jsfile.addLine("var i = 0;");
-  jsfile.addLine("var t = 0;");
-  jsfile.addLine("var HP_snapshot = 0;");
-  
-  jsfile.addLine("HP = stackborder|0;"); // reset to start, as innermost as we can
+  if (PLATFORM_ELECTRON) {
+    jsfile.addLine("void executeRange(int x_from, int y_from, int i_from, int t_from, int x_to, int y_to, int i_to, int t_to) {");
+    jsfile.indent();
+    jsfile.addLine("int x = 0;");
+    jsfile.addLine("int y = 0;");
+    jsfile.addLine("int i = 0;");
+    jsfile.addLine("int t = 0;");
+    jsfile.addLine("int HP_snapshot;");
+    
+    jsfile.addLine("HP = stackborder;"); // reset to start, as innermost as we can
+  } else {
+    jsfile.addLine("function executeRange(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to) {");
+    jsfile.indent();
+    jsfile.addLine("x_from = x_from|0;");
+    jsfile.addLine("y_from = y_from|0;");
+    jsfile.addLine("i_from = i_from|0;");
+    jsfile.addLine("t_from = t_from|0;");
+    jsfile.addLine("x_to = x_to|0;");
+    jsfile.addLine("y_to = y_to|0;");
+    jsfile.addLine("i_to = i_to|0;");
+    jsfile.addLine("t_to = t_to|0;");
+    
+    jsfile.addLine("var x = 0;");
+    jsfile.addLine("var y = 0;");
+    jsfile.addLine("var i = 0;");
+    jsfile.addLine("var t = 0;");
+    jsfile.addLine("var HP_snapshot = 0;");
+    
+    jsfile.addLine("HP = stackborder|0;"); // reset to start, as innermost as we can
+  }
   
   // unroll any number of nested argument-less lambdas (only need one, but why not)
   while (main_fn.arity == 0) {
@@ -4290,7 +4496,14 @@ function compile(files) {
     parnames.push("par"+i);
     inside_flatargs.push({kind: "expr", type: flattened.types[i], value: parnames[i]});
   }
-  jsfile.addLine("function trace("+parnames.join(", ")+") {");
+  if (PLATFORM_ELECTRON) {
+    var parpairs = [];
+    for (var i = 0; i < flattened.types.length; i++) parpairs.push(js_type_to_c(flattened.types[i])+" "+parnames[i]);
+    jsfile.addLine("decls", "void trace("+parpairs.join(", ")+");");
+    jsfile.addLine("void trace("+parpairs.join(", ")+") {");
+  } else {
+    jsfile.addLine("function trace("+parnames.join(", ")+") {");
+  }
   jsfile.indent();
   
   for (var i = 0; i < flattened.types.length; ++i) {
@@ -4313,11 +4526,11 @@ function compile(files) {
     {kind: "quote", value: inside_args[2]}
   ));
   
-  var xvar = coerce_double(inside_args[0]), yvar = coerce_double(inside_args[1]),
-      ivar = coerce_double(inside_args[2]), tvar = coerce_double(inside_args[3]);
+  var xvar = js_tag(inside_args[0]), yvar = js_tag(inside_args[1]),
+      ivar = js_tag(inside_args[2]), tvar = js_tag(inside_args[3]);
   var rvar = js_tag("double", vec.value[0]), gvar = js_tag("double", vec.value[1]), bvar = js_tag("double", vec.value[2]);
   
-  jsfile.addLine("hit(~~"+xvar+", ~~"+yvar+", "+ivar+", "+tvar+", "+rvar+", "+gvar+", "+bvar+");");
+  jsfile.addLine("hit("+xvar+", "+yvar+", "+ivar+", "+tvar+", "+rvar+", "+gvar+", "+bvar+");");
   
   jsfile.set("int", "SP", "BP");
   
@@ -4332,9 +4545,25 @@ function compile(files) {
   
   jsfile.emitFunctionTables();
   
-  jsfile.addLine("return {resetGlobals: resetGlobals, executeRange: executeRange};");
+  if (PLATFORM_ELECTRON) {
+    jsfile.add(
+      "void main() {\n"+
+      "  printf(\"P3\\n\");\n"+
+      "  printf(\"#\\n\");\n"+
+      "  printf(\"%i %i\\n\", dw, dh);\n"+
+      "  printf(\"255\\n\");\n"+
+      "  \n"+
+      "  resetGlobals();\n"+
+      "  executeRange(0, 0, 0, 0, dw, dh, di, 1);\n"+
+      "  hit(0, dh, 0, 0, 0, 0, 0); // flush\n"+
+      "}\n"
+    );
+  } else {
+    jsfile.addLine("return {resetGlobals: resetGlobals, executeRange: executeRange};");
+  }
   
-  jsfile.replace("malloc(0)", "HP"); // peephole
+  var malloc = PLATFORM_ELECTRON?"my_malloc":"malloc";
+  jsfile.replace(malloc+"(0)", "HP"); // peephole
   
   return jsfile.all_source();
 }
