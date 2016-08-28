@@ -871,37 +871,48 @@
       (= box:to:z Infinity))))
 
 (def ray_hits_bound
-  (lambda (from to ray)
+ (lambda (from to ray)
+  (let
+   ((enter (vec3f -Infinity))
+    (exit (vec3f Infinity))
+    ; shift ray into origin
+    (rfrom (- from ray:pos))
+    (rto (- to ray:pos))
+    (dir ray:dir))
+   (if (!= (* dir:x dir:y dir:z) 0)
     (let
-      ((enter (vec3f -Infinity))
-       (exit (vec3f Infinity))
-       ; shift ray into origin
-       (rfrom (- from ray:pos))
-       (rto (- to ray:pos))
-       (dir ray:dir))
-      (if (!= dir:x 0)
-        (let
-          ((a (/ rfrom:x dir:x))
-           (b (/ rto:x dir:x)))
-          (set enter:x (min a b))
-          (set exit:x (max a b))))
-      (if (!= dir:y 0)
-        (let
-          ((a (/ rfrom:y dir:y))
-           (b (/ rto:y dir:y)))
-          (set enter:y (min a b))
-          (set exit:y (max a b))))
-      (if (!= dir:z 0)
-        (let
-          ((a (/ rfrom:z dir:z))
-           (b (/ rto:z dir:z)))
-          (set enter:z (min a b))
-          (set exit:z (max a b))))
+     ((a (/ rfrom dir))
+      (b (/ rto dir)))
+     (set enter:x (min a:x b:x))
+     (set enter:y (min a:y b:y))
+     (set enter:z (min a:z b:z))
+     (set exit:x (max a:x b:x))
+     (set exit:y (max a:y b:y))
+     (set exit:z (max a:z b:z)))
+    (seq
+     (if (!= dir:x 0)
       (let
-        ((last_entry (max enter:x enter:y enter:z))
-         (first_exit (min exit:x exit:y exit:z)))
-        ; if entry is before exit, and exit is ahead of us
-        (and (>= first_exit last_entry) (>= first_exit 0))))))
+       ((a (/ rfrom:x dir:x))
+        (b (/ rto:x dir:x)))
+       (set enter:x (min a b))
+       (set exit:x (max a b))))
+     (if (!= dir:y 0)
+      (let
+       ((a (/ rfrom:y dir:y))
+        (b (/ rto:y dir:y)))
+       (set enter:y (min a b))
+       (set exit:y (max a b))))
+     (if (!= dir:z 0)
+      (let
+       ((a (/ rfrom:z dir:z))
+        (b (/ rto:z dir:z)))
+       (set enter:z (min a b))
+       (set exit:z (max a b))))))
+   (let
+    ((last_entry (max enter:x enter:y enter:z))
+     (first_exit (min exit:x exit:y exit:z)))
+    ; if entry is before exit, and exit is ahead of us
+    (and (>= first_exit last_entry) (>= first_exit 0))))))
 
 (def bound
   (lambda (from to obj)
