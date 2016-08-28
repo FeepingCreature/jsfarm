@@ -430,7 +430,9 @@ function js_op(type, op, a, b) {
     }
   }
   var res = null;
-  if (op == ">>>" && PLATFORM_ELECTRON) {
+  if (op == "%" && type == "float" && PLATFORM_ELECTRON) {
+    res = "fmod("+a+", "+b+")";
+  } else if (op == ">>>" && PLATFORM_ELECTRON) {
     res = "(unsigned int)("+a+") >> "+b;
   } else if (type == "int" && op == "*" && !PLATFORM_ELECTRON) {
     res = "imul("+a+", "+b+")";
