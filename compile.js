@@ -294,7 +294,12 @@ function ClosurePointer(type, base, offset) {
       type: fntype,
       signature: sign,
       offset: offset,
-      call: function(ctx, thing, args) { return js_call_fnptr(ctx.js, this, thing, args); }
+      call: function(ctx, thing, args) {
+        if (args.length != this.type.args.length) {
+          fail(thing, "invalid number of parameters: expected "+(this.type.args.length - 1)+", got "+(args.length - 1));
+        }
+        return js_call_fnptr(ctx.js, this, thing, args);
+      }
     }
   };
 }
@@ -3279,9 +3284,13 @@ function js_call_fnptr(js, fnptr, thing, args) {
   var tblname = js.fntable.getTblNameForType(fnptr.type);
   var tbl_expr = tblname+"["+js_op(null, "&", js_tag(fnptr.offset), js.fntable.getMaskId(tblname))+"]";
   
+  var flat_args_types = flatten_type_array(fnptr.type.args).js_types;
+  
   var flattened = flatten_array(thing, args);
   var signature = flattened.signature;
   var flat_args = flattened.array;
+  
+  if (flat_args_types.length != flat_args.length) fail(thing, "internal logic error: bad number of parameters");
   
   return build_js_call(thing, js, tbl_expr, fnptr.type.ret, flat_args);
 }
