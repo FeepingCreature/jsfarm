@@ -237,7 +237,7 @@ function workerHandleMessage(e, postMessage) {
         var data = array;
         if (ELECTRON_WORKER) {
           var base64 = require("base64-js");
-          data = base64.fromByteArray(new Uint8Array(data));
+          data = base64.fromByteArray(new Uint8Array(data.buffer));
         }
         
         // if (ELECTRON_WORKER) console.log(""+process.pid+":"+ms()+": "+"post message");

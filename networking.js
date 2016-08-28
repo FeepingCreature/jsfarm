@@ -381,7 +381,7 @@ function ServerConnection(jq) {
         // faster node.js ipc
         if (typeof data === "string") {
           if (!PLATFORM_ELECTRON) throw "what";
-          data = new Float32Array(base64.toByteArray(data));
+          data = new Float32Array(base64.toByteArray(data).buffer);
         }
         
         var rgbe_data = null;
