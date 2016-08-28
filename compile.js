@@ -205,7 +205,7 @@ function js_tag(type, value) {
       }*/
       type = value.type;
       value = value.value;
-    } else throw "how tag "+value.kind;
+    } else throw "how tag '"+value.kind+"'";
   }
   if (PLATFORM_ELECTRON) {
     if (type == "float") return "(double)"+paren_maybe(value);
@@ -4010,6 +4010,39 @@ function setupSysctx() {
       return {kind: "expr", type: "float", value: +(x.value >>> 0)};
     }
     return context.js.mkVar(js_op("float", ">>>", js_tag(x), "0"), "float", "u2f");
+  });
+  
+  var swap_fn = function(js, thing, a, b) {
+    if (a.kind == "pointer") {
+      var base = js.mkVar(js_tag(a.base), "int", "a_base");
+      a = js_get_at(a.type, base, 0);
+    }
+    if (b.kind == "pointer") {
+      var base = js.mkVar(js_tag(b.base), "int", "b_base");
+      b = js_get_at(b.type, base, 0);
+    }
+    if (a.kind == "expr" && b.kind == "expr" && (a.type == "int" && b.type == "int" || a.type == "float" && b.type == "float")) {
+      var temp = js.mkVar(a.value, a.type, "temp");
+      js_set(js, thing, a, b);
+      js_set(js, thing, b, temp);
+    } else if (a.kind == "vector" && b.kind == "vector" && JSON.stringify(a.type) == JSON.stringify(b.type)) {
+      var la = flatten(thing, a), lb = flatten(thing, b);
+      for (var i = 0; i < la.length; i++) {
+        swap_fn(js, thing, la[i], lb[i]);
+      }
+    } else if (a.kind == "struct" && b.kind == "struct" && JSON.stringify(a.type) == JSON.stringify(b.type)) {
+      for (var key in a.type.types) {
+        swap_fn(js, thing, a.value[key], b.value[key]);
+      }
+    } else if (a.kind == "closure-pointer" && b.kind == "closure-pointer" && JSON.stringify(a.type) == JSON.stringify(b.type)) {
+      var p1 = flatten(thing, a), p2 = flatten(thing, b);
+      if (p1.length != 2 || p2.length != 2) throw "bad closure pointers?";
+      swap_fn(js, thing, p1[0], p2[0]);
+      swap_fn(js, thing, p1[1], p2[1]);
+    } else fail(thing, "unimplemented: (swap "+JSON.stringify(a)+" "+JSON.stringify(b)+")");
+  };
+  defun(sysctx, "swap", 2, function(context, thing, a, b) {
+    swap_fn(context.js, thing, a, b);
   });
   
   defun(sysctx, "typeof", 1, function(context, thing, value) {
