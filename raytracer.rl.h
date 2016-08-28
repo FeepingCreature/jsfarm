@@ -873,41 +873,40 @@
 (def ray_hits_bound
  (lambda (from to ray)
   (let
-   ((enter (vec3f -Infinity))
-    (exit (vec3f Infinity))
+   ((enter (vec3f 0))
+    (exit (vec3f 0)))
+   (let
     ; shift ray into origin
-    (rfrom (- from ray:pos))
-    (rto (- to ray:pos))
-    (dir ray:dir))
-   (if (!= (* dir:x dir:y dir:z) 0)
-    (let
-     ((a (/ rfrom dir))
-      (b (/ rto dir)))
-     (set enter:x (min a:x b:x))
-     (set enter:y (min a:y b:y))
-     (set enter:z (min a:z b:z))
-     (set exit:x (max a:x b:x))
-     (set exit:y (max a:y b:y))
-     (set exit:z (max a:z b:z)))
-    (seq
-     (if (!= dir:x 0)
-      (let
-       ((a (/ rfrom:x dir:x))
-        (b (/ rto:x dir:x)))
-       (set enter:x (min a b))
-       (set exit:x (max a b))))
-     (if (!= dir:y 0)
-      (let
-       ((a (/ rfrom:y dir:y))
-        (b (/ rto:y dir:y)))
-       (set enter:y (min a b))
-       (set exit:y (max a b))))
-     (if (!= dir:z 0)
-      (let
-       ((a (/ rfrom:z dir:z))
-        (b (/ rto:z dir:z)))
-       (set enter:z (min a b))
-       (set exit:z (max a b))))))
+    ; no need to check for dir != 0; / 0 is a defined op
+    ((a (/ (- from ray:pos) ray:dir))
+     (b (/ (- to ray:pos) ray:dir)))
+    (set enter:x (min a:x b:x))
+    (set enter:y (min a:y b:y))
+    (set enter:z (min a:z b:z))
+    (set exit:x (max a:x b:x))
+    (set exit:y (max a:y b:y))
+    (set exit:z (max a:z b:z)))
+   (let
+    ((last_entry (max enter:x enter:y enter:z))
+     (first_exit (min exit:x exit:y exit:z)))
+    ; if entry is before exit, and exit is ahead of us
+    (and (>= first_exit last_entry) (>= first_exit 0))))))
+
+(def ray_hits_bound_inv
+ (lambda (from to raypos invdir)
+  (let
+   ((enter (vec3f 0))
+    (exit (vec3f 0)))
+   (let
+    ; shift ray into origin
+    ((a (* (- from raypos) invdir))
+     (b (* (- to raypos) invdir)))
+    (set enter:x (min a:x b:x))
+    (set enter:y (min a:y b:y))
+    (set enter:z (min a:z b:z))
+    (set exit:x (max a:x b:x))
+    (set exit:y (max a:y b:y))
+    (set exit:z (max a:z b:z)))
    (let
     ((last_entry (max enter:x enter:y enter:z))
      (first_exit (min exit:x exit:y exit:z)))
@@ -927,6 +926,7 @@
                 (set (: res distance) Infinity)
                 (if (ray_hits_bound from to ray)
                   (fn ray res))))))))))
+
 ; @file plane
 (require util)
 
@@ -1142,42 +1142,182 @@
      (* (/  4 31.) (xperlin31 (* v  4) 20))
      (* (/  2 31.) (xperlin31 (* v  8) 30))
      (* (/  1 31.) (xperlin31 (* v 16) 40)))))
+
 ; @file group
 (require util bound nothing)
 
+(def SceneFunExt
+  (closure-type
+   (list
+    (typeof (make-ray))
+    (typeof (make-res))
+    Vec3f) ; 1 / ray:dir
+   'void))
+
 (def group2
-  (lambda (obj1 obj2)
-    (let
-      ((fn1 (get-scenefun obj1))
-       (fn2 (get-scenefun obj2)))
-      (alloc-struct
-       (bound (merge-bounding-box
-               (get-bounding-box obj1)
-               (get-bounding-box obj2)))
-       (fn (type SceneFun
-             (lambda (ray res1)
-               (let
-                 ((res2 (make-res)))
-                 (fn1 ray res1)
-                 (fn2 ray res2)
-                 (if (< res2:distance res1:distance)
-                   (set res1 res2))))))))))
+ (lambda (obj1 obj2)
+  (let
+   ((fn1 (get-scenefun obj1))
+    (fn2 (get-scenefun obj2))
+    (bound' (merge-bounding-box
+             (get-bounding-box obj1)
+             (get-bounding-box obj2))))
+   (alloc-struct
+    (bound bound')
+    (fn (type SceneFunExt
+         (lambda (ray res1 invdir)
+          (seq
+           (set res1:hit-side OUTSIDE)
+           (set res1:distance Infinity)
+           (if (ray_hits_bound_inv
+                bound':from bound':to
+                ray:pos invdir)
+            (let
+             ((res2 (make-res)))
+             (fn1 ray res1 invdir)
+             (fn2 ray res2 invdir)
+             (if (< res2:distance res1:distance)
+              (set res1 res2))))))))))))
+
+(def group3
+ (lambda (obj1 obj2 obj3)
+  (let
+   ((fn1 (get-scenefun obj1))
+    (fn2 (get-scenefun obj2))
+    (fn3 (get-scenefun obj3))
+    (bound' (merge-bounding-box
+             (merge-bounding-box
+              (get-bounding-box obj1)
+              (get-bounding-box obj2))
+             (get-bounding-box obj3))))
+   (alloc-struct
+    (bound bound')
+    (fn (type SceneFunExt
+         (lambda (ray res1 invdir)
+          (seq
+           (set res1:hit-side OUTSIDE)
+           (set res1:distance Infinity)
+           (if (ray_hits_bound_inv
+                bound':from bound':to
+                ray:pos invdir)
+            (let
+             ((res2 (make-res))
+              (res3 (make-res)))
+             (fn1 ray res1 invdir)
+             (fn2 ray res2 invdir)
+             (fn3 ray res3 invdir)
+             (if (and
+                  (< res2:distance res1:distance)
+                  (< res2:distance res3:distance))
+              (set res1 res2)
+              (if (< res3:distance res1:distance)
+               (set res1 res3)))))))))))))
+
+(def group4
+ (lambda (obj1 obj2 obj3 obj4)
+  (let
+   ((fn1 (get-scenefun obj1))
+    (fn2 (get-scenefun obj2))
+    (fn3 (get-scenefun obj3))
+    (fn4 (get-scenefun obj4))
+    (bound' (merge-bounding-box
+             (merge-bounding-box
+              (get-bounding-box obj1)
+              (get-bounding-box obj2))
+             (merge-bounding-box
+              (get-bounding-box obj3)
+              (get-bounding-box obj4)))))
+   (alloc-struct
+    (bound bound')
+    (fn (type SceneFunExt
+         (lambda (ray res1 invdir)
+          (seq
+           (set res1:hit-side OUTSIDE)
+           (set res1:distance Infinity)
+           (if (ray_hits_bound_inv
+                bound':from bound':to
+                ray:pos invdir)
+            (let
+             ((res2 (make-res))
+              (res3 (make-res))
+              (res4 (make-res)))
+             (fn1 ray res1 invdir)
+             (fn2 ray res2 invdir)
+             (fn3 ray res3 invdir)
+             (fn4 ray res4 invdir)
+             (if (and
+                  (< res2:distance res1:distance)
+                  (< res2:distance res3:distance)
+                  (< res2:distance res4:distance))
+              (set res1 res2)
+              (if (and
+                   (< res3:distance res1:distance)
+                   (< res3:distance res4:distance))
+               (set res1 res3)
+               (if (< res4:distance res1:distance)
+                (set res1 res4))))))))))))))
+
+; should be inlined away
+(def inv_wrap_outer
+ (lambda (obj)
+  (alloc-struct
+   (bound obj:bound)
+   (fn (type SceneFun
+        (lambda (ray res)
+         (obj:fn ray res (/ 1 ray:dir))))))))
+
+; should be inlined away
+(def inv_wrap_inner
+ (lambda (obj)
+  (let
+   ((fn' (type SceneFunExt
+         (lambda (ray res invdir)
+          ((get-scenefun obj) ray res)))))
+   (if (struct? obj)
+    (alloc-struct
+     (bound obj:bound)
+     (fn fn'))
+    (alloc-struct
+     (bound (make-bound (vec3f -Infinity) (vec3f Infinity)))
+     (fn fn'))))))
 
 (def groupfun
-  (lambda (args)
-    (if (= (size args) 0)
-      '(nothing)
-      (if (= (size args) 1)
-        (first args)
-        (let
-          ((pivot (/ (size args) 2))
-           (left (groupfun (slice 0 pivot args)))
-           (right (groupfun (slice pivot (size args) args))))
-          (list 'group2 left right))))))
+ (lambda (args)
+  (if (= (size args) 0)
+   '(inv_wrap_inner (nothing))
+   (if (= (size args) 1)
+    `(inv_wrap_inner ,(first args))
+    (if (= (% (size args) 3) 0)
+     (let
+      ((pivot0 (/ (size args) 3))
+       (pivot1 (/ (* 2 (size args)) 3))
+       (sub0 (groupfun (slice 0 pivot0 args)))
+       (sub1 (groupfun (slice pivot0 pivot1 args)))
+       (sub2 (groupfun (slice pivot1 (size args) args))))
+      (list 'group3 sub0 sub1 sub2))
+     (if (= (size args) 2)
+      (let
+       ((pivot (/ (size args) 2))
+        (left (groupfun (slice 0 pivot args)))
+        (right (groupfun (slice pivot (size args) args))))
+       (list 'group2 left right))
+      (let
+       ((pivot0 (/ (size args) 4))
+        (pivot1 (/ (* 2 (size args)) 4))
+        (pivot2 (/ (* 3 (size args)) 4))
+        (sub0 (groupfun (slice 0 pivot0 args)))
+        (sub1 (groupfun (slice pivot0 pivot1 args)))
+        (sub2 (groupfun (slice pivot1 pivot2 args)))
+        (sub3 (groupfun (slice pivot2 (size args) args))))
+       (list 'group4 sub0 sub1 sub2 sub3))))))))
+
+(def groupfun_outer
+ (lambda (args)
+  `(inv_wrap_outer ,(groupfun args))))
 
 (def group
   (macro (...)
-    (groupfun ...)))
+    (groupfun_outer ...)))
 
 ; @file csg
 (require util bound)
@@ -1366,36 +1506,16 @@
         (seq
          (set res:distance Infinity)
          (set res:hit-side OUTSIDE))))))
+
 ; @file boundgroup
 (require util bound group nothing)
-
-(def bound-wrap
-  (lambda (fn)
-    (if (struct? fn)
-      fn
-      (alloc-struct
-       (bound (make-bound (vec3f -Infinity) (vec3f Infinity)))
-       (fn (type SceneFun fn))))))
-
-(def bound-group
-  (lambda (a b)
-    (let
-      ((box1 (get-bounding-box a))
-       (box2 (get-bounding-box b))
-       (combined-box (merge-bounding-box box1 box2)))
-      (if (infinite-sized-box combined-box)
-        ; then
-        (group a b)
-        ; else
-        (bound
-         (: combined-box from)
-         (: combined-box to)
-         (group a b))))))
 
 (def for/group-lambda-type
   (closure-type
    (list 'int)
    SceneObject))
+
+(def SceneObjectExt (typeof (inv_wrap_inner (nothing))))
 
 (def for/group-fn
   (type
@@ -1403,21 +1523,41 @@
                    'int
                    'int
                    for/group-lambda-type)
-                  SceneObject)
+                  SceneObjectExt)
    (lambda (from to fn)
-     (if (= from to)
-       (bound-wrap (nothing))
-       (if (= (+ 1 from) to)
-         (bound-wrap (fn from))
+    (let
+     ((size (- to from)))
+     (if (= size 0)
+      (inv_wrap_inner (nothing))
+      (if (= size 1)
+       (inv_wrap_inner (fn from))
+       (if (= (% size 3) 0)
+        (let
+         ((pivot0 (+ from (/ size 3)))
+          (pivot1 (+ from (/ (* 2 size) 3)))
+          (sub0 (for/group-fn from pivot0 fn))
+          (sub1 (for/group-fn pivot0 pivot1 fn))
+          (sub2 (for/group-fn pivot1 to fn)))
+         (group3 sub0 sub1 sub2))
+        (if (= size 2)
          (let
-           ((pivot (+ from (/ (- to from) 2)))
-            (left (for/group-fn from pivot fn))
-            (right (for/group-fn pivot to fn)))
-           (bound-group left right)))))))
+          ((pivot (+ from (/ size 2)))
+           (left (for/group-fn from pivot fn))
+           (right (for/group-fn pivot to fn)))
+          (group2 left right))
+         (let
+          ((pivot0 (+ from (/ size 4)))
+           (pivot1 (+ from (/ (* 2 size) 4)))
+           (pivot2 (+ from (/ (* 3 size) 4)))
+           (sub0 (for/group-fn from pivot0 fn))
+           (sub1 (for/group-fn pivot0 pivot1 fn))
+           (sub2 (for/group-fn pivot1 pivot2 fn))
+           (sub3 (for/group-fn pivot2 to fn)))
+          (group4 sub0 sub1 sub2 sub3))))))))))
 
 (def for/group
   (macro (var from to body)
     `(let
        ((%fgbody (type for/group-lambda-type
                       (lambda (,var) ,body))))
-       (for/group-fn ,from ,to %fgbody))))
+       (inv_wrap_outer (for/group-fn ,from ,to %fgbody)))))
