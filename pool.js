@@ -124,10 +124,13 @@ function workerHandleMessage(e, postMessage) {
           }
           if (!fs.existsSync(bin_name)) {
             fs.writeFileSync(src_name, jssrc);
-            var res = child_process.spawnSync("gcc", ["-O3", "-march=native", "-ffast-math", "-fwhole-program",
-                                                      // "-O2", "-march=native",
-                                                      "-lm", "-shared", "-fPIC", src_name, "-o", bin_name,
-                                                      "-Ddw="+settings.dw, "-Ddh="+settings.dh, "-Ddi="+settings.di, "-Ddt="+settings.dt]);
+            // var res = child_process.spawnSync("gcc", ["-O3", "-march=native", /*"-ffast-math", */"-flto",
+            //                                           // "-O2", "-march=native",
+            //                                           "-g", "-lm", "-shared", "-fPIC", src_name, "-o", bin_name,
+            //                                           "-Ddw="+settings.dw, "-Ddh="+settings.dh, "-Ddi="+settings.di, "-Ddt="+settings.dt]);
+            var res = child_process.spawnSync("clang", ["-Ofast", "-march=native", "-Wno-unknown-attributes",
+                                                        "-g", "-lm", "-shared", "-fPIC", src_name, "-o", bin_name,
+                                                        "-Ddw="+settings.dw, "-Ddh="+settings.dh, "-Ddi="+settings.di, "-Ddt="+settings.dt]);
             
             fs.unlinkSync("out/.jsfarm_lock"); // release lock
             
