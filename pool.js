@@ -44,7 +44,7 @@ function is_pot(i) {
   return (i & (i - 1)) == 0;
 }
 
-var global_ram = new ArrayBuffer(1024*32768);
+var global_ram = null;
 
 // we only use pot ranges, so this should be a low number
 var floatarray_cache = {};
@@ -130,16 +130,16 @@ function workerHandleMessage(e, postMessage) {
             if (res.status != 0) {
               throw "compilation failed";
             }
-          }
+          } else fs.unlinkSync("out/.lock");
         }
         
         var lib = ffi.Library(bin_name, {
-          'resetGlobals': ['void', [] ],
+          'setupScene': ['void', [] ],
           'executeRange': ['void', ['int', 'int', 'int', 'int', 'int', 'int', 'int', 'int', ref.refType(ref.types.float)] ]
         });
         
         var compiled = {
-          resetGlobals: function() { lib.resetGlobals(); },
+          setupScene: function() { lib.setupScene(); },
           executeRange: function(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to) {
             // TODO progress somehow?
             lib.executeRange(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to, new Buffer(config.array.buffer));
@@ -189,6 +189,7 @@ function workerHandleMessage(e, postMessage) {
           "Numeric error: NaN found!"
         ];
         
+        if (!global_ram) global_ram = new ArrayBuffer(1024*32768);
         var compiled = asmjs(stdlib, {
           'dw': dw,
           'dh': dh,
@@ -202,6 +203,8 @@ function workerHandleMessage(e, postMessage) {
           'memory_limit': 1024*32768
         }, global_ram);
       }
+      
+      compiled.setupScene();
       
       cache_entry = fncache[fncache_id++];
       fncache_id = fncache_id % fncache.length;
@@ -221,8 +224,6 @@ function workerHandleMessage(e, postMessage) {
         config.count = 0;
         config.last_tm = Date.now() - 800; // initial message after 200ms
         // config.last_tm = 0; // initial message straight off
-        
-        compiled.resetGlobals();
         
         compiled.executeRange(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to);
         

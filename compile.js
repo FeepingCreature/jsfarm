@@ -4329,16 +4329,18 @@ function compile(files) {
   
   // log("bake");
   
+  var record_fns = [], restore_fns = [];
+  
   jsfile.openSection("function");
   
   if (PLATFORM_ELECTRON) {
-    jsfile.addLine("void resetGlobals() __attribute__ ((externally_visible));");
-    jsfile.addLine("void resetGlobals() {");
+    jsfile.addLine("static void resetGlobals() {");
   } else {
     jsfile.addLine("function resetGlobals() {");
   }
   
   jsfile.indent();
+  jsfile.addLine("HP = stackborder|0;");
   
   for (var i = 0; i < context_list.length; ++i) {
     var context = context_list[i].context;
@@ -4349,24 +4351,34 @@ function compile(files) {
           // bake in
           var jsname = jsfile.allocName("g", key);
           // log("baking "+jsname);
-          var type = null;
+          var initializer = null, type = null;
           if (lit_int(value)) {
-            if (PLATFORM_ELECTRON) {
-              jsfile.addLine("variables", "static int "+jsname+" = "+js_tag_init("int", value.value)+";");
-            } else {
-              jsfile.addLine("variables", "var "+jsname+" = "+js_tag_init("int", value.value)+";");
-            }
-            jsfile.set("int", jsname, js_tag_init("int", value.value));
+            initializer = js_tag_init("int", value.value);
             type = "int";
           } else {
-            if (PLATFORM_ELECTRON) {
-              jsfile.addLine("variables", "static "+js_type_to_c("float")+" "+jsname+" = "+js_tag_init("float", value.value)+";");
-            } else {
-              jsfile.addLine("variables", "var "+jsname+" = "+js_tag_init("float", value.value)+";");
-            }
-            jsfile.set("float", jsname, js_tag_init("float", value.value));
+            initializer = js_tag_init("float", value.value);
             type = "float";
           }
+          
+          if (PLATFORM_ELECTRON) {
+            jsfile.addLine("variables", "static "+js_type_to_c(type)+" "+jsname+" = "+initializer+";");
+            jsfile.addLine("variables", "static "+js_type_to_c(type)+" "+jsname+"_backup;");
+          } else {
+            jsfile.addLine("variables", "var "+jsname+" = "+initializer+";");
+            jsfile.addLine("variables", "var "+jsname+"_backup = "+initializer+";");
+          }
+          jsfile.set(type, jsname, initializer);
+          record_fns.push(function(jsname, jsfile, type) {
+            return function() {
+              jsfile.set(type, jsname+"_backup", jsname);
+            };
+          }(jsname, jsfile, type));
+          restore_fns.push(function(jsname, jsfile, type) {
+            return function() {
+              jsfile.set(type, jsname, jsname+"_backup");
+            };
+          }(jsname, jsfile, type));
+          
           context.table[key] = {kind: "expr", type: type, value: jsname};
         }
       }
@@ -4374,6 +4386,30 @@ function compile(files) {
     }
   }
   
+  jsfile.unindent();
+  jsfile.addLine("}");
+  jsfile.closeSection("function");
+  
+  jsfile.openSection("function");
+  if (PLATFORM_ELECTRON) {
+    jsfile.addLine("static void recordGlobals() {");
+  } else {
+    jsfile.addLine("function recordGlobals() {");
+  }
+  jsfile.indent();
+  for (var i = 0; i < record_fns.length; i++) record_fns[i]();
+  jsfile.unindent();
+  jsfile.addLine("}");
+  jsfile.closeSection("function");
+  
+  jsfile.openSection("function");
+  if (PLATFORM_ELECTRON) {
+    jsfile.addLine("static void restoreGlobals() {");
+  } else {
+    jsfile.addLine("function restoreGlobals() {");
+  }
+  jsfile.indent();
+  for (var i = 0; i < restore_fns.length; i++) restore_fns[i]();
   jsfile.unindent();
   jsfile.addLine("}");
   jsfile.closeSection("function");
@@ -4402,6 +4438,26 @@ function compile(files) {
   jsfile.openSection("function");
   
   if (PLATFORM_ELECTRON) {
+    jsfile.addLine("void setupScene() __attribute__ ((externally_visible));");
+    jsfile.addLine("void setupScene() {");
+  } else {
+    jsfile.addLine("function setupScene() {");
+  }
+  jsfile.indent();
+  jsfile.addLine("resetGlobals();");
+  
+  // unroll any number of nested argument-less lambdas (only need one, but why not)
+  while (main_fn.arity == 0) {
+    main_fn = callctx.eval(list({kind: "quote", value: main_fn}));
+  }
+  
+  jsfile.addLine("recordGlobals();");
+  jsfile.unindent();
+  jsfile.addLine("}");
+  jsfile.closeSection("function");
+  
+  jsfile.openSection("function");
+  if (PLATFORM_ELECTRON) {
     jsfile.addLine("void executeRange(int x_from, int y_from, int i_from, int t_from, int x_to, int y_to, int i_to, int t_to, float *data_ptr) __attribute__ ((externally_visible));");
     jsfile.addLine("void executeRange(int x_from, int y_from, int i_from, int t_from, int x_to, int y_to, int i_to, int t_to, float *data_ptr) {");
     jsfile.indent();
@@ -4414,8 +4470,6 @@ function compile(files) {
     jsfile.addLine("int i = 0;");
     jsfile.addLine("int t = 0;");
     jsfile.addLine("int HP_snapshot;");
-    
-    jsfile.addLine("HP = stackborder;"); // reset to start, as innermost as we can
   } else {
     jsfile.addLine("function executeRange(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to) {");
     jsfile.indent();
@@ -4433,15 +4487,11 @@ function compile(files) {
     jsfile.addLine("var i = 0;");
     jsfile.addLine("var t = 0;");
     jsfile.addLine("var HP_snapshot = 0;");
-    
-    jsfile.addLine("HP = stackborder|0;"); // reset to start, as innermost as we can
   }
   
-  // unroll any number of nested argument-less lambdas (only need one, but why not)
-  while (main_fn.arity == 0) {
-    main_fn = callctx.eval(list({kind: "quote", value: main_fn}));
-  }
+  jsfile.addLine("restoreGlobals();");
   
+  // record start hp (not stackborder, because setupScene ran first)
   jsfile.addLine("HP_snapshot = HP|0;");
   
   jsfile.addLine("t = t_from|0;");
@@ -4456,7 +4506,7 @@ function compile(files) {
   jsfile.addLine("i = i_from|0;");
   jsfile.addLine("while ((i|0) < (i_to|0)) {");
   jsfile.indent();
-  jsfile.addLine("HP = HP_snapshot|0;"); // reset again
+  jsfile.addLine("HP = HP_snapshot|0;"); // reset
   
   // pass lambda-to-call to trace
   var trace_args = [
@@ -4544,7 +4594,7 @@ function compile(files) {
   jsfile.emitFunctionTables();
   
   if (!PLATFORM_ELECTRON) {
-    jsfile.addLine("return {resetGlobals: resetGlobals, executeRange: executeRange};");
+    jsfile.addLine("return {setupScene: setupScene, executeRange: executeRange};");
   }
   
   var malloc = PLATFORM_ELECTRON?"my_malloc":"malloc";

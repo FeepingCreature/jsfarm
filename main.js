@@ -550,11 +550,13 @@ function Connect(jq) {
 function Disconnect(jq) {
   if (typeof jq !== 'undefined') {
     var dom = jq[0];
-    if (dom.hasOwnProperty('workset')) CancelRender(jq);
+    if (typeof dom !== 'undefined' && dom.hasOwnProperty('workset')) CancelRender(jq);
   }
   $('#settings input').removeAttr('disabled');
-  window.connection.disconnect();
-  window.connection = null;
+  if (typeof 'window' !== 'undefined' && 'connection' in window) {
+    window.connection.disconnect();
+    window.connection = null;
+  }
 }
 
 window["reloadPageOnSave"] = function() {
