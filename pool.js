@@ -3,8 +3,7 @@
 var WEB_WORKER = typeof importScripts === 'function';
 var ELECTRON_WORKER = (typeof alert === 'undefined') && (typeof process !== 'undefined');
 
-// if (typeof alert !== 'undefined') alert("alert: "+WEB_WORKER+", "+ELECTRON_WORKER);
-// else console.log("log: "+WEB_WORKER+", "+ELECTRON_WORKER);
+// if (typeof console !== 'undefined') console.log("debug: "+WEB_WORKER+", "+ELECTRON_WORKER);
 
 // importScripts('compile.js');
 // importScripts('files.js');
@@ -62,6 +61,9 @@ function free_floatarray(array) {
   floatarray_cache[size].push(array);
 }
 
+var time_start = null;
+if (typeof process !== "undefined") time_start = process.hrtime();
+
 function workerHandleMessage(e, postMessage) {
   try {
     var x_from = e.data["x_from"], x_to = e.data["x_to"];
@@ -115,22 +117,24 @@ function workerHandleMessage(e, postMessage) {
           // busyspin to take lock
           while (true) {
             try {
-              var fd = fs.openSync("out/.lock", 'wx');
+              var fd = fs.openSync("out/.jsfarm_lock", 'wx');
               fs.closeSync(fd);
               break;
             } catch(err) { }
           }
           if (!fs.existsSync(bin_name)) {
             fs.writeFileSync(src_name, jssrc);
-            var res = child_process.spawnSync("gcc", ["-O3", "-ffast-math", "-march=native", "-fwhole-program", "-lm", "-shared", "-fPIC", src_name, "-o", bin_name,
+            var res = child_process.spawnSync("gcc", ["-O3", "-march=native", "-ffast-math", "-fwhole-program",
+                                                      // "-O2", "-march=native",
+                                                      "-lm", "-shared", "-fPIC", src_name, "-o", bin_name,
                                                       "-Ddw="+settings.dw, "-Ddh="+settings.dh, "-Ddi="+settings.di, "-Ddt="+settings.dt]);
             
-            fs.unlinkSync("out/.lock"); // release lock
+            fs.unlinkSync("out/.jsfarm_lock"); // release lock
             
             if (res.status != 0) {
               throw "compilation failed";
             }
-          } else fs.unlinkSync("out/.lock");
+          } else fs.unlinkSync("out/.jsfarm_lock");
         }
         
         var lib = ffi.Library(bin_name, {
@@ -225,7 +229,10 @@ function workerHandleMessage(e, postMessage) {
         config.last_tm = Date.now() - 800; // initial message after 200ms
         // config.last_tm = 0; // initial message straight off
         
+        function ms() { var t = process.hrtime(time_start); return t[0] * 1.0 + t[1] / 1000000000.0; }
+        // if (ELECTRON_WORKER) console.log(""+process.pid+":"+ms()+": "+"executeRange start "+x_from+" "+y_from+" "+i_from+" "+t_from+" "+x_to+" "+y_to+" "+i_to+" "+t_to);
         compiled.executeRange(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to);
+        // if (ELECTRON_WORKER) console.log(""+process.pid+":"+ms()+": "+"executeRange end");
         
         var data = array;
         if (ELECTRON_WORKER) {
@@ -233,6 +240,7 @@ function workerHandleMessage(e, postMessage) {
           data = base64.fromByteArray(new Uint8Array(data));
         }
         
+        // if (ELECTRON_WORKER) console.log(""+process.pid+":"+ms()+": "+"post message");
         postMessage({
           kind: "finish",
           x_from: x_from, y_from: y_from, i_from: i_from, t_from: t_from,
@@ -251,5 +259,5 @@ function workerHandleMessage(e, postMessage) {
   }
 }
 
-if (ELECTRON_WORKER) process.on('message', function(e) { return workerHandleMessage(e, process.send.bind(process)); });
+if (ELECTRON_WORKER) process.on('message', function(e) { return workerHandleMessage(e, function(msg) { process.send(msg); }); });
 else if (WEB_WORKER) onmessage = function(e) { return workerHandleMessage(e, postMessage); };

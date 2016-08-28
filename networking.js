@@ -308,10 +308,17 @@ function Loopback() {
   };
 }
 
+var child_process = null, base64 = null;;
+if (PLATFORM_ELECTRON) {
+  child_process = require("child_process");
+  base64 = require("base64-js");
+}
+
+
 /** @constructor */
 function ElectronWorker(jsfile) {
   if (!PLATFORM_ELECTRON) throw "electron worker in non-electron?";
-  var child_process = require("child_process");
+  
   this.process = child_process.fork(jsfile);
   this.terminate = function() {
     this.process.kill('SIGKILL');
@@ -374,7 +381,6 @@ function ServerConnection(jq) {
         // faster node.js ipc
         if (typeof data === "string") {
           if (!PLATFORM_ELECTRON) throw "what";
-          var base64 = require("base64-js");
           data = new Float32Array(base64.toByteArray(data));
         }
         
@@ -850,15 +856,18 @@ function RenderWorkset(jq, connection) {
         
         var finish = function(reason) {
           var finish_fn = function() {
+            log(id, ": close due to", reason);
             dispatch.finish();
             for (var key in exchanges) {
               exchanges[key].timer.kill();
               delete exchanges[key];
             }
-            clearInterval(con_control_timer);
+            if (con_control_timer) { clearInterval(con_control_timer); con_control_timer = null; }
             // log_id(id, "finish:", reason, ",", JSON.stringify(Array.prototype.slice.call(arguments)));
             // log(id, "removing connection because", reason);
-            for (var key in tasksInFlight) {
+            var keys = Object.keys(tasksInFlight); // copy
+            for (var i = 0; i < keys.length; i++) {
+              var key = keys[i];
               var task = tasksInFlight[key];
               if (task.assigned_to && task.assigned_to != id) {
                 throw "why are we seeing a task from another connection?";
@@ -1136,6 +1145,10 @@ function RenderWorkset(jq, connection) {
                         if (num_errors++ > 2) {
                           log(id, ": giving up on this peer");
                           con.close();
+                          // not sure if trigger gets called when we close it
+                          // deliberately, so make sure, the function can
+                          // handle being called multiple times
+                          finish("close")();
                         }
                       } else {
                         // log(id, ": task", channel, "kicked from queue, was", task.state);
@@ -1181,6 +1194,7 @@ function RenderWorkset(jq, connection) {
               startExchange();
             } else {
               con.close(); // work is done, shut down.
+              finish("close")(); // not sure if trigger gets called when we close it deliberately; be sure.
             }
           }, 1000);
           
