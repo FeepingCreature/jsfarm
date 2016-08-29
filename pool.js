@@ -111,6 +111,7 @@ function workerHandleMessage(e, postMessage) {
         
         var src_name = "out/jsfarm_"+hash+".c";
         var bin_name = "out/jsfarm_"+hash+".so";
+        var bin_temp_name = "out/jsfarm_"+hash+".temp.so";
         
         // double-check
         if (!fs.existsSync(bin_name)) {
@@ -126,18 +127,20 @@ function workerHandleMessage(e, postMessage) {
             fs.writeFileSync(src_name, jssrc);
             // var res = child_process.spawnSync("gcc", ["-O3", "-march=native", /*"-ffast-math", */"-flto",
             //                                           // "-O2", "-march=native",
-            //                                           "-g", "-lm", "-shared", "-fPIC", src_name, "-o", bin_name,
+            //                                           "-g", "-lm", "-shared", "-fPIC", src_name, "-o", bin_temp_name,
             //                                           "-Ddw="+settings.dw, "-Ddh="+settings.dh, "-Ddi="+settings.di, "-Ddt="+settings.dt]);
             var res = child_process.spawnSync("clang", ["-Ofast", "-march=native", "-Wno-unknown-attributes",
-                                                        "-g", "-lm", "-shared", "-fPIC", src_name, "-o", bin_name,
+                                                        "-g", "-lm", "-shared", "-fPIC", src_name, "-o", bin_temp_name,
                                                         "-Ddw="+settings.dw, "-Ddh="+settings.dh, "-Ddi="+settings.di, "-Ddt="+settings.dt]);
             
-            fs.unlinkSync("out/.jsfarm_lock"); // release lock
-            
             if (res.status != 0) {
+              fs.unlinkSync("out/.jsfarm_lock"); // release lock
               throw "compilation failed";
             }
-          } else fs.unlinkSync("out/.jsfarm_lock");
+            
+            fs.renameSync(bin_temp_name, bin_name);
+          }
+          fs.unlinkSync("out/.jsfarm_lock");
         }
         
         var lib = ffi.Library(bin_name, {
