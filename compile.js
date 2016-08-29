@@ -4185,6 +4185,7 @@ function compile(files) {
     jsfile.addLine("static int SP = stackborder;"); // grows down, underflow bounded
     // heap pointer
     jsfile.addLine("static int HP = stackborder;"); // grows up, overflow bounded
+    jsfile.addLine("static int HP_backup;");
 
     jsfile.openSection("decls");
     
@@ -4257,6 +4258,7 @@ function compile(files) {
     jsfile.addLine("var SP = foreign.stackborder|0;"); // grows down, underflow bounded
     // heap pointer
     jsfile.addLine("var HP = foreign.stackborder|0;"); // grows up, overflow bounded
+    jsfile.addLine("var HP_backup = 0;");
     // backup
     jsfile.addLine("var stackborder = foreign.stackborder|0;");
     
@@ -4443,6 +4445,7 @@ function compile(files) {
     jsfile.addLine("function recordGlobals() {");
   }
   jsfile.indent();
+  jsfile.addLine("HP_backup = HP|0;");
   for (var i = 0; i < record_fns.length; i++) record_fns[i]();
   jsfile.unindent();
   jsfile.addLine("}");
@@ -4455,6 +4458,7 @@ function compile(files) {
     jsfile.addLine("function restoreGlobals() {");
   }
   jsfile.indent();
+  jsfile.addLine("HP = HP_backup|0;");
   for (var i = 0; i < restore_fns.length; i++) restore_fns[i]();
   jsfile.unindent();
   jsfile.addLine("}");
