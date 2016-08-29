@@ -517,8 +517,6 @@ function RenderScene(jq) {
   
   jq.find('.progress-container').empty().append(workset.progress_ui.dom);
   
-  workset.shuffle();
-  
   workset.run();
 }
 

@@ -1258,20 +1258,6 @@ function RenderWorkset(jq, connection) {
       recheckPeers();
     });
   };
-  this.shuffle = function(top_num) {
-    top_num = top_num || this.tasks.length;
-    var limit = this.tasks.length - top_num;
-    for (var i = this.tasks.length - 1; i >= limit; --i) {
-      var target = Math.floor(Math.random() * (i + 1));
-      
-      var temp = this.tasks[target];
-      this.tasks[target] = this.tasks[i];
-      this.tasks[target].array_id = target;
-      
-      this.tasks[i] = temp;
-      this.tasks[i].array_id = i;
-    }
-  };
   this.cancel = function() {
     for (var key in this.connections) {
       this.connections[key].close();
@@ -1324,12 +1310,10 @@ function RenderWorkset(jq, connection) {
     
     if (!must_split && (estim_seconds_for_task <= max_seconds_per_task || task_pixels < subdiv_limit)) return false;
     
-    var pushed = 0;
     var push = function(task) {
       if (self.onTaskAdd) self.onTaskAdd(task.message);
       task.array_id = self.tasks.length;
       self.tasks.push(task);
-      pushed ++;
     };
     
     var msg_i_size = msg.i_to - msg.i_from;
@@ -1349,7 +1333,6 @@ function RenderWorkset(jq, connection) {
       
       push(top);
       
-      // this.shuffle(1);
       return true;
     }
     
@@ -1382,7 +1365,6 @@ function RenderWorkset(jq, connection) {
     if (y_didsplit && task_touches_area(bl)) {
       push(bl);
     }
-    // this.shuffle(pushed);
     return true;
   };
   this.getQueuedTask = function(id) {
