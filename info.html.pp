@@ -88,7 +88,7 @@ And above all: <b>have fun rendering!</b>
     <div class="panel-body"><img src="http://i.imgur.com/c8AZsPU.png"></div>
   </div>
 </a>
-<a href=".#gist=f0592a8f701b7cbf67b42973ac847c60665ad034,https://gist.github.com/0a68ef9aec817096b29271123c988102;image=http://i.imgur.com/BrX0Cl6.png">
+<a href=".#gist=57c63b0e1060058bce5139888aef669b95679d68,https://gist.github.com/301678c9e9e51cb1b6f115d10c8ca076;image=http://i.imgur.com/BrX0Cl6.png">
   <div class="panel panel-default" style="float:left;margin-right: 12px;">
     <div class="panel-heading">Pavillon</div>
     <div class="panel-body"><img src="http://i.imgur.com/BrX0Cl6.png"></div>
