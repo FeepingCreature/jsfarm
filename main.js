@@ -512,7 +512,7 @@ function RenderScene(jq) {
   };
   
   var extent = Math.max(next_pot(dw), next_pot(dh));
-  var task = new WorkRange(0, 0, 0, 0, extent, extent, quality, 1);
+  var task = new WorkRange(0, 0, 0, 0, extent, extent, next_pot(quality), 1);
   workset.addTask(task);
   
   jq.find('.progress-container').empty().append(workset.progress_ui.dom);

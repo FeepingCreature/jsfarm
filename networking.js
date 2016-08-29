@@ -1340,7 +1340,7 @@ function RenderWorkset(jq, connection) {
   };
   this.estimSubdivideTask = function(id, task) {
     var self = this, msg = task.message;
-    var dw = this.task_defaults.dw, dh = this.task_defaults.dh;
+    var dw = this.task_defaults.dw, dh = this.task_defaults.dh, di = this.task_defaults.di;
     var task_pixels = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from);
     var task_samples = (msg.x_to - msg.x_from) * (msg.y_to - msg.y_from) * (msg.i_to - msg.i_from) * (msg.t_to - msg.t_from);
     var estim_seconds_for_task = this.getPerfEstimatorFor(id).estimate(task_samples);
@@ -1373,7 +1373,9 @@ function RenderWorkset(jq, connection) {
       bot.message.i_to = isplit;
       top.message.i_from = isplit;
       
-      push(top);
+      if (top.message.i_from < di) {
+        push(top);
+      }
       
       return true;
     }
