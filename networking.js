@@ -649,15 +649,19 @@ function PerfEstimator() {
   };
 }
 
+function handler_matches(channel, kind, msg) {
+  if (msg.channel !== channel) return false;
+  if (kind instanceof RegExp) return kind.test(msg.kind);
+  else return kind === msg.kind;
+}
+
 /** @constructor */
 function HandlerFn(channel, kind, fn) {
   this.channel = channel;
   this.kind = kind;
   this.fn = fn;
   this.matches = function(msg) {
-    if (msg.channel != this.channel) return false;
-    if (this.kind instanceof RegExp) return this.kind.test(msg.kind);
-    else return this.kind == msg.kind;
+    return handler_matches(this.channel, this.kind, msg);
   };
 }
 
@@ -668,33 +672,71 @@ function MessageDispatcher() {
   this.handlers = Object.create(null);
   this.handlers_id = 0;
   this.killed = false;
+  this.deadChannels = Object.create(null);
+  this.deadLow = 0;
+  this.dead = function(channel) {
+    if (channel < this.deadLow) return true;
+    return channel in this.deadChannels;
+  };
+  this.setDead = function(channel) {
+    if (channel < this.deadLow) return;
+    this.deadChannels[channel] = true;
+    while (this.deadLow in this.deadChannels) {
+      delete this.deadChannels[this.deadLow];
+      this.deadLow ++;
+    }
+  };
   this.waitMsg = function(channel, kind, fn) {
-    var handler = new HandlerFn(channel, kind, fn);
-    for (var key in this.msgqueue) {
-      if (handler.matches(this.msgqueue[key])) {
-        var remove = handler.fn(this.msgqueue[key]);
-        delete this.msgqueue[key]; // successfully delivered!
-        if (remove) return; // no need to store handler at all
+    if (this.dead(channel)) return; // wat
+    if (channel in this.msgqueue) {
+      var msgs = this.msgqueue[channel];
+      var keys = Object.keys(msgs);
+      for (var i = 0; i < keys.length; i++) {
+        var key = keys[i];
+        if (handler_matches(channel, kind, msgs[key])) {
+          var remove = fn(msgs[key]);
+          delete msgs[key]; // successfully delivered!
+          if (remove) return; // no need to store handler at all
+        }
       }
     }
-    this.handlers[this.handlers_id++] = handler;
+    if (!(channel in this.handlers)) {
+       this.handlers[channel] = Object.create(null);
+    }
+    this.handlers[channel][this.handlers_id++] = new HandlerFn(channel, kind, fn);
   };
   this.finish = function() {
     this.killed = true;
   };
   this.onDataReliable = function(msg) {
     if (this.killed) return; // drop all further messages
+    if (this.dead(msg.channel)) return;
     // we can be assured we're running on the main thread, here.
-    for (var key in this.handlers) {
-      var handler = this.handlers[key];
-      if (handler.matches(msg)) {
-        if (handler.fn(msg)) delete this.handlers[key];
-        return;
+    if (msg.channel in this.handlers) {
+      var hdls = this.handlers[msg.channel];
+      var keys = Object.keys(hdls);
+      for (var i = 0; i < keys.length; i++) {
+        var key = keys[i];
+        var handler = hdls[key];
+        if (handler.matches(msg)) {
+          if (handler.fn(msg)) {
+            delete hdls[key];
+          }
+          return;
+        }
       }
     }
     // message has no handler
     // hold it for later, in case a handler for it turns up
-    this.msgqueue[this.msgqueue_id++] = msg;
+    if (!(msg.channel in this.msgqueue)) {
+      this.msgqueue[msg.channel] = Object.create(null);
+    }
+    this.msgqueue[msg.channel][this.msgqueue_id++] = msg;
+  };
+  this.cleanupChannel = function(channel) {
+    this.setDead(channel);
+    delete this.msgqueue[channel];
+    delete this.handlers[channel];
   };
   var self = this;
   this.onData = function(msg) {
