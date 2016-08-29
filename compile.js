@@ -3018,7 +3018,7 @@ function JsFile() {
       indentDepth = this.findSection(parent).indentDepth;
     }
     
-    this.sections.push({name: name, indentDepth: indentDepth, source: "", finalizers: []});
+    this.sections.push({name: name, indentDepth: indentDepth, source: "", finalizers: [], var_prefix: ""});
   };
   this.popSection = function(name) {
     var last = this.sections.pop();
@@ -3139,7 +3139,8 @@ function JsFile() {
     else throw ("how init "+type+"?");
     
     if (PLATFORM_ELECTRON) {
-      this.addLine(location, js_type_to_c(type)+" "+name+";");
+      var section = this.findSection(location);
+      this.addLine(location, section.var_prefix+js_type_to_c(type)+" "+name+";");
     } else {
       this.addLine(location, "var "+name+" = "+sample+";");
     }
@@ -4176,6 +4177,7 @@ function compile(files) {
     );
     
     jsfile.openSection("variables");
+    jsfile.findSection("variables").var_prefix = "static ";
     
     // backup
     jsfile.addLine("#define stackborder (512*1024)");
