@@ -609,23 +609,26 @@ function ServerConnection(jq) {
     jq.find('#WorkerInfo .workerlist').empty();
   };
   this.connect = function(onDone) {
+    jq.find('#ConnectButton').prop("disabled", true);
     this.peerjs = this._connectPeerJs();
     if (!this.peerjs) return;
     
-    this.startup(onDone);
-    jq.find('#ConnectButton').hide();
-    jq.find('#DisconnectButton').show();
+    this.startup(function() {
+      jq.find('#ConnectButton').prop("disabled", false).hide();
+      jq.find('#DisconnectButton').show();
+      onDone();
+    });
   };
   this.disconnect = function() {
+    jq.find('#DisconnectButton').hide();
     this.shutdown();
     $(window).off('unload', null, Disconnect);
     
     this.peerjs.destroy();
     this.id = null;
     
-    jq.find('#DisconnectButton').hide();
-    jq.find('#ConnectButton').show();
     setStatus(jq, "Status: not running");
+    jq.find('#ConnectButton').show();
   };
 };
 
