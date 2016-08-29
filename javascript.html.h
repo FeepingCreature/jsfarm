@@ -2,6 +2,13 @@
 <script type="text/javascript">
   if (typeof window !== 'undefined' && window.process && window.process.type === "renderer") { // electron
     window.$ = window.jQuery = module.exports;
+    var os = require('os');
+    $(function() {
+      $('#target').val("feephome.no-ip.org/jsfarm");
+      $('#threads').val(os.cpus().length);
+      $('#ident').val(os.hostname());
+      $('#ConnectButton').click();
+    });
   }
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js"></script>
