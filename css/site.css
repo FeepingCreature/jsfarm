@@ -132,7 +132,7 @@ input[type="text"] {
   margin-top: 6px;
   width : 512px;
   height: 512px;
-  z-index: 6;
+  z-index: 1000;
 }
 
 .canvas-wrapper {
