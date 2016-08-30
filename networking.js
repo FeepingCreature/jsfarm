@@ -140,19 +140,33 @@ function WorkRange(x_from, y_from, i_from, t_from, x_to, y_to, i_to, t_to) {
 
 var worktask_id = 0;
 
+function log2(v) {
+  // 0 -> 0
+  // 1 -> 0
+  // 2 -> 1
+  // 3 -> 1
+  // 4 -> 2 etc.
+  for (var i = 0; v > (1<<i); i++) { }
+  return i;
+}
+  
 /** @constructor */
-function WorkTask(range, array_id) {
+function WorkTask(range) {
   this.state = 'queued';
   this.id = worktask_id ++;
-  this.array_id = array_id;
   this.assigned_to = null;
   this.progress = 0.0;
   this.message = range;
+  this.calcTier = function() {
+    var range = this.message;
+    this.tier = log2(range.x_to - range.x_from) + log2(range.y_to - range.y_from) + log2(range.i_to - range.i_from) + log2(range.t_to - range.t_from);
+  };
+  this.calcTier();
   this.sclone = function() {
     var msg = this.message;
     return new WorkTask(new WorkRange(
       msg.x_from, msg.y_from, msg.i_from, msg.t_from,
-      msg.x_to, msg.y_to, msg.i_to, msg.t_to), null);
+      msg.x_to, msg.y_to, msg.i_to, msg.t_to));
   };
 }
 
@@ -750,7 +764,6 @@ function RenderWorkset(jq, connection) {
   
   this.workers = [];
   
-  this.tasks = [];
   this.task_defaults = {};
   this.progress_ui = new ProgressUI(jq, function() { return self.task_defaults.dw * self.task_defaults.dh * self.task_defaults.di * self.task_defaults.dt; });
   
@@ -850,20 +863,12 @@ function RenderWorkset(jq, connection) {
         
         var firstExchangeOnConnection = true;
         
-        var tasksInFlight = Object.create(null);
-        
-        var failTask = function(task) {
-          if (task.state != 'accepted') throw ("failTask: invalid state transition: '"+task.state+"' to 'failed'");
-          // Errors may happen for weird and random reasons!
-          // task.state = 'failed';
-          task.state = 'queued';
-          task.assigned_to = null;
-          self.progress_ui.onTaskAborted(task);
-          delete tasksInFlight[task.id];
-          self.checkAreWeDone();
-        };
-        
         var reenqueueTask = function(task, reason) {
+          if (task.channel in exchanges) {
+            exchanges[task.channel].timer.kill();
+            delete exchanges[task.channel].task;
+          }
+          
           self.progress_ui.onTaskAborted(task);
           if (reason == 'timeout') {
             // Well clearly it wasn't a very good estimate, now!
@@ -872,10 +877,16 @@ function RenderWorkset(jq, connection) {
           if (task.state != 'asking' && task.state != 'accepted') throw ("reenqueueTask: invalid state transition: '"+task.state+"' to 'queued'");
           task.state = 'queued';
           task.assigned_to = null;
-          delete tasksInFlight[task.id];
+          delete task.channel;
         };
         
-        var finishTask = function(task, timer, resultInfo) {
+        var finishTask = function(channel, resultInfo) {
+          var timer = exchanges[channel].timer;
+          timer.kill();
+          
+          var task = exchanges[channel].task;
+          delete exchanges[channel].task;
+          
           var msg = task.message;
           if (task.state != 'accepted') throw ("finishTask: invalid state transition: '"+task.state+"' to 'done'");
           task.state = 'done';
@@ -888,7 +899,6 @@ function RenderWorkset(jq, connection) {
           self.getPerfEstimatorFor(id).feedback(samples_rendered, time_taken);
           
           // log("done: "+timer.elapsed()+" for "+(msg.x_to - msg.x_from) * (msg.y_to - msg.y_from) * (msg.i_to - msg.i_from));
-          delete tasksInFlight[task.id];
           self.checkAreWeDone();
         };
         
@@ -899,27 +909,33 @@ function RenderWorkset(jq, connection) {
         var dispatch = new MessageDispatcher();
         con.on('data', dispatch.onData);
         
+        var cleanup_channel = function (channel, reason) {
+          // exchange was already killed (by a timeout?) before we received whatever caused this
+          if (!(channel in exchanges)) return;
+          exchanges[channel].timer.kill();
+          
+          if (exchanges[channel].hasOwnProperty('task')) {
+            var task = exchanges[channel].task;
+            reenqueueTask(task, reason);
+          }
+          if (!(channel in exchanges)) {
+            throw "what, where did it go";
+          }
+          
+          dispatch.cleanupChannel(channel);
+          delete exchanges[channel];
+        };
+        
         var finish = function(reason) {
           var finish_fn = function() {
             log(id, ": close due to", reason);
             dispatch.finish();
             for (var key in exchanges) {
-              exchanges[key].timer.kill();
-              delete exchanges[key];
+              cleanup_channel(key, 'close');
             }
             if (con_control_timer) { clearInterval(con_control_timer); con_control_timer = null; }
             // log_id(id, "finish:", reason, ",", JSON.stringify(Array.prototype.slice.call(arguments)));
             // log(id, "removing connection because", reason);
-            var keys = Object.keys(tasksInFlight); // copy
-            for (var i = 0; i < keys.length; i++) {
-              var key = keys[i];
-              var task = tasksInFlight[key];
-              if (task.assigned_to && task.assigned_to != id) {
-                throw "why are we seeing a task from another connection?";
-              }
-              reenqueueTask(task, 'close');
-            }
-            if (Object.keys(tasksInFlight).length > 0) throw "internal error - tasks left in queue";
             
             // this might be false if we're removing peers because of errors
             // which for some reason might trigger multiple times.
@@ -940,20 +956,12 @@ function RenderWorkset(jq, connection) {
           var startExchange = function() {
             var channel = channel_counter ++;
             // log(id, "start new exchange on channel", channel);
+            if (channel in exchanges) throw "what!!";
             exchanges[channel] = {};
             exchanges[channel].timer = new TimeoutTimer(50000, function() {
-              // log_id(id, "exchange timed out");
-              if (exchanges[channel].hasOwnProperty('task')) {
-                var task = exchanges[channel].task;
-                // log(id, ": timeout on", channel, "reenqueue", task.state);
-                reenqueueTask(task, 'timeout');
-                // controversial:
-                // don't start a new exchange here
-                // the peer has demonstrated that it cannot render this task in a timely manner
-                // leave it to another peer - hope that one shows up.
-              }
-              delete exchanges[channel];
+              cleanup_channel(channel, 'timeout');
             });
+            if (!(channel in exchanges)) return; // a bizarre event
             
             exchanges[channel].next = null;
             exchange(channel);
@@ -962,26 +970,25 @@ function RenderWorkset(jq, connection) {
           var dfl_src = null;
           
           var exchange = function(channel) {
+            
+            var cleanup = function(reason) {
+              cleanup_channel(channel, reason);
+            }
+            
             var advance = function() {
               if (!(channel in exchanges)) return; // we have been killed in the interim
-              exchanges[channel].timer.reset(); // something happened! reset the timeout
-              var fn = exchanges[channel].next;
-              exchanges[channel].next = null;
+              var exchange = exchanges[channel];
+              exchange.timer.reset(); // something happened! reset the timeout
+              var fn = exchange.next;
+              exchange.next = null;
               fn();
             };
+            
             var set_next = function(fn) {
               if (exchanges[channel].next != null) {
                 throw "next fn already set";
               }
               exchanges[channel].next = fn;
-            };
-            
-            var cleanup = function () {
-              // exchange was already killed (by a timeout?) before we received whatever caused this
-              if (!(channel in exchanges)) return;
-              
-              exchanges[channel].timer.kill();
-              delete exchanges[channel];
             };
             
             var time_response = function(fn) {
@@ -1007,7 +1014,11 @@ function RenderWorkset(jq, connection) {
               con.send({kind: "whoareyou", channel: channel, whoami: getMyLabel(self.connection)});
             };
             
-            var taskAccepted = function(task, fn) {
+            var taskAccepted = function(fn) {
+              if (!(channel in exchanges)) {
+                throw ("'accept?' on channel "+channel+", which is already removed");
+              }
+              
               var result = null;
               var reactTaskAccepted = function(msg) {
                 // log(msg.kind, "on", id+"/"+channel);
@@ -1021,16 +1032,19 @@ function RenderWorkset(jq, connection) {
                 return true;
               };
               
+              var task = exchanges[channel].task;
               if (task.state != 'processing') throw ("taskAccepted: invalid state transition: '"+task.state+"' to 'asking'");
+              if (!(task.channel in exchanges) || !exchanges[task.channel].hasOwnProperty('task')) {
+                throw "set to asking, but bad exchanges info";
+              }
               task.state = 'asking';
-              tasksInFlight[task.id] = task;
               
               set_next(function() { fn(result); }); // yield; return result;
               dispatch.waitMsg(channel, /accepted|rejected/, reactTaskAccepted);
               con.send({kind: 'task', message: task.message, secret: self.connection.secret, channel: channel});
             };
             
-            var waitTaskDone = function(task, fn) {
+            var waitTaskDone = function(fn) {
               var res = null;
               var reactTaskDone = function(msg) {
                 // log(msg.kind, "on", id+"/"+channel);
@@ -1041,6 +1055,7 @@ function RenderWorkset(jq, connection) {
                 } else if (msg.kind == 'progress') {
                   if (!(channel in exchanges)) return true; // connection timed out before we got here
                   var frac = +msg.value;
+                  var task = exchanges[channel].task;
                   task.progress = frac;
                   self.onTaskProgress(task.message, frac);
                   if (!task.hasOwnProperty('_progress')) {
@@ -1058,9 +1073,10 @@ function RenderWorkset(jq, connection) {
               dispatch.waitMsg(channel, /done|error|progress/, reactTaskDone);
             };
             
-            var waitTaskResultReceived = function(task, fn) {
+            var waitTaskResultReceived = function(fn) {
               var data = null;
               var reactTaskResultReceived = function(msg) {
+                exchanges[channel].resultmsg = msg;
                 if (msg.kind == 'result') {
                   if (con instanceof LoopbackConnection) {
                     data = new Float32Array(msg.data);
@@ -1139,14 +1155,20 @@ function RenderWorkset(jq, connection) {
               };
               
               if_ping_set_body(function() {
-                var task = self.getQueuedTask(id);
-                if (!task) {
-                  cleanup();
-                  return null;
-                }
-                
-                exchanges[channel].task = task;
-                task.channel = channel;
+                if (!(function() {
+                  var task = self.getQueuedTask(id);
+                  if (!task) {
+                    cleanup("no task got");
+                    return false;
+                  }
+                  
+                  if (exchanges[channel].hasOwnProperty('task')) {
+                    throw "what";
+                  }
+                  task.channel = channel;
+                  exchanges[channel].task = task;
+                  return true;
+                })()) return null;
                 
                 var debug = true;
                 
@@ -1154,17 +1176,17 @@ function RenderWorkset(jq, connection) {
                 // log_id(id, "task", channel, "submitting");
                 
                 var if_task_accepted_body = function(next) {
-                  taskAccepted(task, function(accepted) {
+                  taskAccepted(function(accepted) {
                     if (accepted) {
                       if (debug) { debug = false; }
                       else {
                         log("internal error: next called multiple times on channel", task.channel);
                       }
+                      var task = exchanges[channel].task;
                       // log_id(id, "task on", task.channel, "has been accepted.");
                       // log(id, "task on", task.channel, "has been accepted.");
                       if (task.state != 'asking') throw ("taskAccepted: invalid state transition: '"+task.state+"' to 'accepted'");
                       task.state = 'accepted';
-                      task.assigned_to = id;
                       // self.progress_ui.onTaskAccepted(task);
                       self.onTaskStart(task.message);
                       // maybe this peer has more threads free?
@@ -1174,32 +1196,29 @@ function RenderWorkset(jq, connection) {
                     } else {
                       // log_id(id, "task", channel, "rejected:", msg.reason);
                       // log(id, "task", channel, "rejected:", task.reason);
-                      reenqueueTask(task, 'rejected');
-                      cleanup();
+                      cleanup('rejected');
                     }
                   });
                 };
                 
                 if_task_accepted_body(function() {
-                  waitTaskDone(task, function(msg) {
+                  waitTaskDone(function(msg) {
                     if (msg.kind == 'error') {
+                      var task = exchanges[channel].task;
                       // late rejection
+                      reenqueueTask(task, msg.nature);
                       if (msg.nature == 'fatal') {
                         log(peerinfo.label, " (", id, "): task", channel, "failed:", msg.fatal, msg.error, "(3, "+num_errors+")");
-                        failTask(task);
                         if (num_errors++ > 2) {
                           log(id, ": giving up on this peer");
                           con.close();
                           // not sure if trigger gets called when we close it
                           // deliberately, so make sure, the function can
                           // handle being called multiple times
-                          finish("close")();
+                          finish("close_giveup")();
                         }
-                      } else {
-                        // log(id, ": task", channel, "kicked from queue, was", task.state);
-                        reenqueueTask(task, msg.nature); // recoverable, like queue kicks
                       }
-                      cleanup();
+                      cleanup('error');
                       return;
                     }
                     
@@ -1207,7 +1226,8 @@ function RenderWorkset(jq, connection) {
                     // nag it some more
                     startExchange();
                     
-                    waitTaskResultReceived(task, function(data) {
+                    waitTaskResultReceived(function(data) {
+                      var task = exchanges[channel].task;
                       // log("received task", id, ":", channel, ":", task.message.y_from);
                       var resultInfo = {
                         x_from: task.message.x_from,
@@ -1221,9 +1241,9 @@ function RenderWorkset(jq, connection) {
                         data: data
                       };
                       
-                      finishTask(task, exchanges[channel].timer, resultInfo);
+                      finishTask(channel, resultInfo);
                       
-                      cleanup();
+                      cleanup("task finished");
                     });
                   });
                 });
@@ -1238,15 +1258,16 @@ function RenderWorkset(jq, connection) {
             if (!self.done()) {
               startExchange();
             } else {
+              log("all work is done.");
               con.close(); // work is done, shut down.
-              finish("close")(); // not sure if trigger gets called when we close it deliberately; be sure.
+              finish("close_done")(); // not sure if trigger gets called when we close it deliberately; be sure.
             }
           }, 1000);
           
           startExchange();
         });
-        con.on('close', finish("close"));
-        con.on('error', finish("error"));
+        con.on('close', finish("close_con"));
+        con.on('error', finish("error_con"));
         
         self.connections[id] = con;
       };
@@ -1301,6 +1322,7 @@ function RenderWorkset(jq, connection) {
     });
   };
   this.cancel = function() {
+    log("Cancelling.");
     for (var key in this.connections) {
       this.connections[key].close();
       delete this.connections[key];
@@ -1311,24 +1333,42 @@ function RenderWorkset(jq, connection) {
     this.progress_ui.reset();
     this.giveWorkToIdlePeers();
   };
+  
+  // task related functions
+  this.tasks = Object.create(null);
+  this.addTaskToList = function(task) {
+    if (!(task.tier in this.tasks)) this.tasks[task.tier] = [];
+    
+    var tier = this.tasks[task.tier];
+    task.array_id = tier.length;
+    tier.push(task);
+  };
   this.addTask = function(range) {
-    var task = new WorkTask(range, this.tasks.length);
+    var task = new WorkTask(range);
     if (this.onTaskAdd) this.onTaskAdd(range);
-    this.tasks.push(task);
+    this.addTaskToList(task);
   };
   this.removeTask = function(task) {
-    var i = task.array_id;
     // swap last task with task, replacing it
-    this.tasks[i] = this.tasks[this.tasks.length - 1];
-    this.tasks[i].array_id = i;
+    var tier = this.tasks[task.tier];
+    var i = task.array_id;
+    tier[i] = tier[tier.length - 1];
+    tier[i].array_id = i;
     // pop end
-    this.tasks.pop();
+    tier.pop();
   };
   this.peekQueuedTask = function() {
-    // for (var i = 0; i < this.tasks.length; ++i) {
-    for (var i = this.tasks.length - 1; i >= 0; --i) {
-      var task = this.tasks[i];
-      if (task.state == 'queued') return task;
+    maxTier = 16*4; // ~16 bits (4K max), 4 dimensions
+    // bottom to top
+    for (var tier_id = 0; tier_id < maxTier; tier_id++) {
+      if (tier_id in this.tasks) {
+        var tier = this.tasks[tier_id];
+        // prefer tasks towards the end, to avoid shuffling the list as much when we remove them
+        for (var i = tier.length - 1; i >= 0; i--) {
+          var task = tier[i];
+          if (task.state === 'queued') return task;
+        }
+      }
     }
     return null;
   };
@@ -1352,10 +1392,11 @@ function RenderWorkset(jq, connection) {
     
     if (!must_split && (estim_seconds_for_task <= max_seconds_per_task || task_pixels < subdiv_limit)) return false;
     
+    this.removeTask(task);
+    
     var push = function(task) {
       if (self.onTaskAdd) self.onTaskAdd(task.message);
-      task.array_id = self.tasks.length;
-      self.tasks.push(task);
+      self.addTaskToList(task);
     };
     
     var msg_i_size = msg.i_to - msg.i_from;
@@ -1366,23 +1407,26 @@ function RenderWorkset(jq, connection) {
     // runs into _serious_ issues with bandwidth consumption
     if (msg.i_from == 0 && msg_i_size > 4) {
       // split on i preferentially
-      var bot = task, top = task.sclone();
+      var bot = task.sclone(), top = task.sclone();
       
       var isplit = msg.i_from + Math.ceil((msg.i_to - msg.i_from) / 2);
       
       bot.message.i_to = isplit;
       top.message.i_from = isplit;
+      bot.calcTier();
+      top.calcTier();
       
       if (top.message.i_from < di) {
         push(top);
       }
+      push(bot);
       
       return true;
     }
     
     // log("subdivide task: targeting", max_seconds_per_task, ", estimated", estim_seconds_for_task, "for", task_pixels);
     // subdivide into four quadrants
-    var tl = task, tr = task.sclone(), bl = task.sclone(), br = task.sclone();
+    var tl = task.sclone(), tr = task.sclone(), bl = task.sclone(), br = task.sclone();
     
     var xsplit = msg.x_from + Math.ceil((msg.x_to - msg.x_from) / 2);
     var ysplit = msg.y_from + Math.ceil((msg.y_to - msg.y_from) / 2);
@@ -1400,23 +1444,31 @@ function RenderWorkset(jq, connection) {
       return msg.x_from < dw && msg.y_from < dh;
     };
     
-    if (x_didsplit && task_touches_area(tr)) {
-      push(tr);
+    
+    if (y_didsplit && task_touches_area(bl)) {
+      push(bl);
     }
     if (x_didsplit && y_didsplit && task_touches_area(br)) {
       push(br);
     }
-    if (y_didsplit && task_touches_area(bl)) {
-      push(bl);
+    if (x_didsplit && task_touches_area(tr)) {
+      push(tr);
     }
+    push(tl);
     return true;
   };
   this.getQueuedTask = function(id) {
-    var task = this.peekQueuedTask();
+    var task = null;
+    while (true) {
+      task = this.peekQueuedTask();
+      if (task && this.estimSubdivideTask(id, task)) continue;
+      break;
+    }
+    
     if (task) {
-      while (this.estimSubdivideTask(id, task)) { }
-      if (task.state != 'queued') throw ("getQueuedTask: invalid state transition: '"+task.state+"' to 'processing'");
+      if (task.state !== 'queued') throw ("getQueuedTask: invalid state transition: '"+task.state+"' to 'processing'");
       task.state = 'processing';
+      task.assigned_to = id;
     }
     return task;
   };
@@ -1424,8 +1476,11 @@ function RenderWorkset(jq, connection) {
     return this.peekQueuedTask() != null;
   };
   this.gotUnfinishedTasks = function() {
-    for (var i = 0; i < this.tasks.length; ++i) {
-      if (this.tasks[i].state != 'done' && this.tasks[i].state != 'error') return true;
+    for (var key in this.tasks) {
+      var tier = this.tasks[key];
+      for (var i = 0; i < tier.length; i++) {
+        if (tier[i].state !== 'done' && tier[i].state !== 'error') return true;
+      }
     }
     return false;
   };
