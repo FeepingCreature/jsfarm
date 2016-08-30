@@ -909,11 +909,19 @@ function RenderWorkset(jq, connection) {
         var dispatch = new MessageDispatcher();
         con.on('data', dispatch.onData);
         
+        // how many exchanges we can have open that have not yet received any answer from the peer
+        // basically a "badger limit"
+        var limit_fresh_exchanges = 40;
+        
         var cleanup_channel = function (channel, reason) {
           // exchange was already killed (by a timeout?) before we received whatever caused this
           if (!(channel in exchanges)) return;
           exchanges[channel].timer.kill();
           
+          if (exchanges[channel].fresh) {
+            limit_fresh_exchanges ++;
+            exchanges[channel].fresh = false; // perfunctory
+          }
           if (exchanges[channel].hasOwnProperty('task')) {
             var task = exchanges[channel].task;
             reenqueueTask(task, reason);
@@ -958,6 +966,7 @@ function RenderWorkset(jq, connection) {
             // log(id, "start new exchange on channel", channel);
             if (channel in exchanges) throw "what!!";
             exchanges[channel] = {};
+            exchanges[channel].fresh = false; // only set to true once we start the exchange proper
             exchanges[channel].timer = new TimeoutTimer(50000, function() {
               cleanup_channel(channel, 'timeout');
             });
@@ -974,6 +983,14 @@ function RenderWorkset(jq, connection) {
             var cleanup = function(reason) {
               cleanup_channel(channel, reason);
             }
+            
+            if (limit_fresh_exchanges == 0) {
+              // throw "this seems very suspicious";
+              cleanup("squelch");
+              return; // don't have too many open tasks on a peer
+            }
+            exchanges[channel].fresh = true;
+            limit_fresh_exchanges --;
             
             var advance = function() {
               if (!(channel in exchanges)) return; // we have been killed in the interim
@@ -1178,6 +1195,9 @@ function RenderWorkset(jq, connection) {
                 var if_task_accepted_body = function(next) {
                   taskAccepted(function(accepted) {
                     if (accepted) {
+                      exchanges[channel].fresh = false;
+                      limit_fresh_exchanges ++;
+                      
                       if (debug) { debug = false; }
                       else {
                         log("internal error: next called multiple times on channel", task.channel);
