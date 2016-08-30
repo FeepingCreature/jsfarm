@@ -295,8 +295,11 @@ function LoadStateFromAnchor(dom) {
 
 $(function() {
   $(window).on('beforeunload', function() {
+    if (IsRendering()) {
+      return "Reloading will interrupt the running render.";
+    }
     if ("editor" in window && !window["editor"].allClean()) {
-      return "You have unsaved code! Are you sure you want to leave?";
+      return "Your changes have not been saved.";
     }
   });
 });
@@ -531,9 +534,17 @@ function CancelRender(jq) {
   jq.find('#RenderButton').show();
 }
 
+function IsRendering(jq) {
+  if (typeof jq === 'undefined') jq = $('.render_ui');
+  var any = false;
+  jq.each(function(index, dom) {
+    if (dom.hasOwnProperty('workset')) any = true;
+  });
+  return any;
+}
+
 function RenderOrCancel(jq) {
-  var dom = jq[0];
-  if (dom.hasOwnProperty('workset')) CancelRender(jq);
+  if (IsRendering(jq)) CancelRender(jq);
   else RenderScene(jq);
 }
 
