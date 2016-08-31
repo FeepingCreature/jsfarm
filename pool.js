@@ -77,10 +77,14 @@ function workerHandleMessage(e, postMessage) {
     
     if (x_from < 0 || x_to > dw || y_from < 0 || y_to > dh) throw "render range outside image";
     
-    var width = x_to - x_from, height = y_to - y_from;
-    if (width < 0 || height < 0) throw "render range negative";
-    if (!is_pot(width) || !is_pot(height)) throw "render range must be power-of-two sized";
+    var width = x_to - x_from, height = y_to - y_from, time = t_to - t_from;
+    if (width < 0 || height < 0 || time < 0) throw "render range negative";
+    if (!is_pot(width) || !is_pot(height) || !is_pot(time)) throw "render range must be power-of-two sized";
     if (width != height) throw "render range must be quadratic";
+    
+    var total_size = width * height * time;
+    if (total_size > 16*1024*1024) throw "render range too big!";
+    if (total_size < 0) throw "render range much much too big!";
     
     var settings = {'dw': dw, 'dh': dh, 'di': di, 'dt': dt};
     
