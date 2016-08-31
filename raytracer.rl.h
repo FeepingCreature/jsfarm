@@ -1504,28 +1504,112 @@
        a
        b
        stdcyl))))
-; @file box
-(require plane csg bound)
 
-(def
-  box
-  (lambda (a' b')
-    (let
-      ((a (vec3f
-           (min (: a' x) (: b' x))
-           (min (: a' y) (: b' y))
-           (min (: a' z) (: b' z))))
-       (b (vec3f
-           (max (: a' x) (: b' x))
-           (max (: a' y) (: b' y))
-           (max (: a' z) (: b' z)))))
-      (bound a b (intersect
-                  (plane (vec3f -1  0  0) a)
-                  (plane (vec3f  1  0  0) b)
-                  (plane (vec3f  0 -1  0) a)
-                  (plane (vec3f  0  1  0) b)
-                  (plane (vec3f  0  0 -1) a)
-                  (plane (vec3f  0  0  1) b))))))
+; @file box
+(require util bound)
+
+(def box
+ (lambda (a'' b'')
+  (let
+   ((a' (vec3f
+         (min (: a'' x) (: b'' x))
+         (min (: a'' y) (: b'' y))
+         (min (: a'' z) (: b'' z))))
+    (b' (vec3f
+         (max (: a'' x) (: b'' x))
+         (max (: a'' y) (: b'' y))
+         (max (: a'' z) (: b'' z))))
+    (my-id (get-object-id)))
+   (alloc-struct
+    (bound (make-bound a' b'))
+    (fn
+     (type SceneFun
+      (lambda (ray res)
+       (let
+        ((enter (vec3f 0))
+         (exit (vec3f 0))
+         ; no need to check for dir != 0; / 0 is a defined op
+         (rayinv (/ 1 ray:dir))
+         ; shift ray into origin
+         (a (* (- a' ray:pos) rayinv))
+         (b (* (- b' ray:pos) rayinv))
+         (entry_norm (vec3f 0))
+         (exit_norm (vec3f 0))
+         (last_entry 0.0)
+         (first_exit 0.0)
+         (enter_x (min a:x b:x))
+         (enter_y (min a:y b:y))
+         (enter_z (min a:z b:z))
+         (exit_x (max a:x b:x))
+         (exit_y (max a:y b:y))
+         (exit_z (max a:z b:z)))
+        ; determine entry info
+        (if (> enter_x enter_y)
+         (if (> enter_x enter_z)
+          (seq
+           (set entry_norm:x (if (> ray:dir:x 0) -1 1))
+           (set last_entry enter_x))
+          ; y < x <= z
+          (seq
+           (set entry_norm:z (if (> ray:dir:z 0) -1 1))
+           (set last_entry enter_z)))
+         ; x <= y
+         (if (> enter_z enter_y)
+          (seq
+           (set entry_norm:z (if (> ray:dir:z 0) -1 1))
+           (set last_entry enter_z))
+          ; x <= y, z <= y
+          (seq
+           (set entry_norm:y (if (> ray:dir:y 0) -1 1))
+           (set last_entry enter_y))))
+        ; determine exit info
+        (if (< exit_x exit_y)
+         (if (< exit_x exit_z)
+          (seq
+           (set exit_norm:x (if (> ray:dir:x 0) 1 -1))
+           (set first_exit exit_x))
+          ; z <= x < y
+          (seq
+           (set exit_norm:z (if (> ray:dir:z 0) 1 -1))
+           (set first_exit exit_z)))
+         ; x >= y
+         (if (< exit_z exit_y)
+          (seq
+           (set exit_norm:z (if (> ray:dir:z 0) 1 -1))
+           (set first_exit exit_z))
+          ; x >= y, z >= y
+          (seq
+           (set exit_norm:y (if (> ray:dir:y 0) 1 -1))
+           (set first_exit exit_y))))
+        ; by default, missing hits hit from outside at infinity
+        (set-default-material res)
+        (set res:hit-id my-id)
+        (set res:hit-side OUTSIDE)
+        (set res:distance Infinity)
+        (if
+         ; if entry is before exit
+         (>= first_exit last_entry)
+         (if (and
+              (>= last_entry 0)
+              (<= last_entry ray:dist-to)
+              (not (and
+                    (= ray:avoid-obj-id my-id)
+                    (= ray:avoid-obj-side OUTSIDE))))
+          (seq
+           (set res:distance last_entry)
+           (set res:normal entry_norm))
+          ; else
+          (if (and
+               (>= first_exit 0)
+               (<= first_exit ray:dist-to)
+               (not (and
+                     (= ray:avoid-obj-id my-id)
+                     (= ray:avoid-obj-side INSIDE))))
+           (seq
+            (set res:hit-side INSIDE)
+            (set res:distance first_exit)
+            (set res:normal exit_norm)))))))))))))
+
 ; @file nothing
 (require util)
 
