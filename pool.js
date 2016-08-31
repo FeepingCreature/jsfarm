@@ -113,9 +113,22 @@ function workerHandleMessage(e, postMessage) {
         hash.update(jssrc);
         hash = hash.digest('hex');
         
+        // stolen from node-ffi
+        var ext = {
+          'linux':  '.so',
+          'linux2': '.so',
+          'sunos':  '.so',
+          'solaris':'.so',
+          'freebsd':'.so',
+          'openbsd':'.so',
+          'darwin': '.dylib',
+          'mac':    '.dylib',
+          'win32':  '.dll'
+        }[process.platform];
+        
         var src_name = "out/jsfarm_"+hash+".c";
-        var bin_name = "out/jsfarm_"+hash+".so";
-        var bin_temp_name = "out/jsfarm_"+hash+".temp.so";
+        var bin_name = "out/jsfarm_"+hash+ext;
+        var bin_temp_name = "out/jsfarm_"+hash+".temp"+ext;
         
         // double-check
         if (!fs.existsSync(bin_name)) {
