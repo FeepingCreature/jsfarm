@@ -66,11 +66,11 @@ if (typeof process !== "undefined") time_start = process.hrtime();
 
 function workerHandleMessage(e, postMessage) {
   try {
-    var x_from = e.data["x_from"], x_to = e.data["x_to"];
-    var y_from = e.data["y_from"], y_to = e.data["y_to"];
-    var i_from = e.data["i_from"], i_to = e.data["i_to"];
-    var t_from = e.data["t_from"], t_to = e.data["t_to"];
-    var dw = e.data["dw"], dh = e.data["dh"], di = e.data["di"], dt = e.data["dt"];
+    var x_from = e.data["x_from"]|0, x_to = e.data["x_to"]|0;
+    var y_from = e.data["y_from"]|0, y_to = e.data["y_to"]|0;
+    var i_from = e.data["i_from"]|0, i_to = e.data["i_to"]|0;
+    var t_from = e.data["t_from"]|0, t_to = e.data["t_to"]|0;
+    var dw = e.data["dw"]|0, dh = e.data["dh"]|0, di = e.data["di"]|0, dt = e.data["dt"]|0;
     var s2src = e.data["source"];
     
     if (dw > 4096 || dh > 4096 || dw < 0 || dh < 0) throw "size limits exceeded";
