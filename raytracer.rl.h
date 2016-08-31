@@ -1,14 +1,12 @@
 #include "prelude.rl.h"
 ; @file util
 
-; last changed 2016-03-28
-
 ; ground rules
 ; * All ray-object tests must be total; ie. every
-;   ray-object test generates a hit.
-;   Hits may apply at infinity to indicate "misses";
-;   this is important to detect whether ray:pos was
-;   inside or outside an object (for CSG).
+; ray-object test generates a hit.
+; Hits may apply at infinity to indicate "misses";
+; this is important to detect whether ray:pos was
+; inside or outside an object (for CSG).
 
 (def make-res
   (macro
@@ -45,33 +43,44 @@
       res)))
 
 (def make-ray
-  (macro
-    ()
-    '(make-struct
-      (pos (vec3f 0))
-      (dir (vec3f 0))
-      ; id of obj to skip generating hit for
-      (avoid-obj-id 0)
-      ; side of obj to skip generating hit for
-      (avoid-obj-side INSIDE))))
-
-(def make-ray-like
-  (macro
-    (srcray)
-    `(make-struct
-      (pos (vec3f 0))
-      (dir (vec3f 0))
-      (avoid-obj-id (: ,srcray avoid-obj-id))
-      (avoid-obj-side (: ,srcray avoid-obj-side)))))
+ (macro ()
+  '(make-struct
+    (pos (vec3f 0))
+    (dir (vec3f 0))
+    ; id of obj to skip generating hit for
+    (avoid-obj-id 0)
+    ; side of obj to skip generating hit for
+    (avoid-obj-side INSIDE)
+    ; upper limit of hit
+    (dist-to Infinity))))
 
 (def alloc-ray
-  (macro
-    ()
-    '(alloc-struct
-      (pos (vec3f 0))
-      (dir (vec3f 0))
-      (avoid-obj-id 0)
-      (avoid-obj-side INSIDE))))
+ (macro ()
+  '(alloc-struct
+    (pos (vec3f 0))
+    (dir (vec3f 0))
+    (avoid-obj-id 0)
+    (avoid-obj-side INSIDE)
+    (dist-to Infinity))))
+
+(def make-ray-like
+ (macro (srcray)
+  `(make-struct
+    (pos (vec3f 0))
+    (dir (vec3f 0))
+    (avoid-obj-id (: ,srcray avoid-obj-id))
+    (avoid-obj-side (: ,srcray avoid-obj-side))
+    (dist-to Infinity))))
+
+(def copy-ray
+ (macro (srcray)
+  `(let ((srcray' ,srcray))
+    (make-struct
+     (pos srcray':pos)
+     (dir srcray':dir)
+     (avoid-obj-id srcray':avoid-obj-id)
+     (avoid-obj-side srcray':avoid-obj-side)
+     (dist-to srcray':dist-to)))))
 
 (def SceneFun
   (closure-type
@@ -254,50 +263,54 @@
           (fn ray2 res))))))
 
 (def translate
-  (lambda (vec fn)
-    (let
-     ((fun (get-scenefun fn))
-      (translate-fn
-       (type
-         SceneFun
-         (lambda (ray res)
-           (let
-             ((ray2 (make-ray-like ray)))
-             (set ray2:pos (- ray:pos vec))
-             (set ray2:dir ray:dir)
-             (fun ray2 res))))))
-     (if (struct? fn)
-       (alloc-struct
-        (bound (make-bound (+ vec fn:bound:from) (+ vec fn:bound:to)))
-        (fn translate-fn))
-       translate-fn))))
+ (lambda (vec fn)
+  (let
+   ((fun (get-scenefun fn))
+    (translate-fn
+     (type
+      SceneFun
+      (lambda (ray res)
+       (let
+        ((ray2 (make-ray-like ray)))
+        (set ray2:pos (- ray:pos vec))
+        (set ray2:dir ray:dir)
+        (set ray2:dist-to ray:dist-to) ; not affected, because distance isn't
+        (fun ray2 res))))))
+   (if (struct? fn)
+    (alloc-struct
+     (bound (make-bound (+ vec fn:bound:from) (+ vec fn:bound:to)))
+     (fn translate-fn))
+    translate-fn))))
 
 (def scale
-  (lambda (vec fn)
-    (let
-     ((fun (get-scenefun fn))
-      (inv-vec (/ 1 vec))
-      (scale-fn
-       (type
-         SceneFun
-         (lambda (ray res)
-           (let
-             ((ray2 (make-ray-like ray))
-              (dir-scaled (* inv-vec ray:dir))
-              (dir-adjust (length dir-scaled))
-              (dir' (/ dir-scaled dir-adjust)))
-             (set ray2:pos (* inv-vec ray:pos))
-             (set ray2:dir dir')
-             (fun ray2 res)
-             ; translate back to original-ray space
-             (set res:distance (/ res:distance dir-adjust))
-             (set res:normal
-                  (normalized (* inv-vec res:normal))))))))
-     (if (struct? fn)
-       (alloc-struct
-        (bound (make-bound (* vec fn:bound:from) (* vec fn:bound:to)))
-        (fn scale-fn))
-       scale-fn))))
+ (lambda (vec fn)
+  (let
+   ((fun (get-scenefun fn))
+    (inv-vec (/ 1 vec))
+    (scale-fn
+     (type
+      SceneFun
+      (lambda (ray res)
+       (let
+        ((ray2 (make-ray-like ray))
+         (dir-scaled (* inv-vec ray:dir))
+         (dir-adjust (length dir-scaled))
+         (dir-adjust-inv (/ 1 dir-adjust))
+         (dir' (* dir-scaled dir-adjust-inv)))
+        (set ray2:pos (* inv-vec ray:pos))
+        (set ray2:dir dir')
+        ; inverse of res:distance adjustment
+        (set ray2:dist-to (* ray:dist-to dir-adjust))
+        (fun ray2 res)
+        ; translate back to original-ray space
+        (set res:distance (* res:distance dir-adjust-inv))
+        (set res:normal
+         (normalized (* inv-vec res:normal))))))))
+   (if (struct? fn)
+    (alloc-struct
+     (bound (make-bound (* vec fn:bound:from) (* vec fn:bound:to)))
+     (fn scale-fn))
+    scale-fn))))
 
 (def render
   (lambda (scene)
@@ -878,8 +891,9 @@
    (let
     ; shift ray into origin
     ; no need to check for dir != 0; / 0 is a defined op
-    ((a (/ (- from ray:pos) ray:dir))
-     (b (/ (- to ray:pos) ray:dir)))
+    ((rayinv (/ 1 ray:dir))
+     (a (* (- from ray:pos) rayinv))
+     (b (* (- to ray:pos) rayinv)))
     (set enter:x (min a:x b:x))
     (set enter:y (min a:y b:y))
     (set enter:z (min a:z b:z))
@@ -890,17 +904,20 @@
     ((last_entry (max enter:x enter:y enter:z))
      (first_exit (min exit:x exit:y exit:z)))
     ; if entry is before exit, and exit is ahead of us
-    (and (>= first_exit last_entry) (>= first_exit 0))))))
+    (and
+     (>= first_exit last_entry)
+     (>= first_exit 0)
+     (<= last_entry ray:dist-to))))))
 
 (def ray_hits_bound_inv
- (lambda (from to raypos invdir)
+ (lambda (from to ray invdir)
   (let
    ((enter (vec3f 0))
     (exit (vec3f 0)))
    (let
     ; shift ray into origin
-    ((a (* (- from raypos) invdir))
-     (b (* (- to raypos) invdir)))
+    ((a (* (- from ray:pos) invdir))
+     (b (* (- to ray:pos) invdir)))
     (set enter:x (min a:x b:x))
     (set enter:y (min a:y b:y))
     (set enter:z (min a:z b:z))
@@ -911,7 +928,11 @@
     ((last_entry (max enter:x enter:y enter:z))
      (first_exit (min exit:x exit:y exit:z)))
     ; if entry is before exit, and exit is ahead of us
-    (and (>= first_exit last_entry) (>= first_exit 0))))))
+    ; and entry is close enough to be credible
+    (and
+     (>= first_exit last_entry)
+     (>= first_exit 0)
+     (<= last_entry ray:dist-to))))))
 
 (def bound
   (lambda (from to obj)
@@ -1171,11 +1192,13 @@
            (set res1:distance Infinity)
            (if (ray_hits_bound_inv
                 bound':from bound':to
-                ray:pos invdir)
+                ray invdir)
             (let
-             ((res2 (make-res)))
-             (fn1 ray res1 invdir)
-             (fn2 ray res2 invdir)
+             ((res2 (make-res))
+              (ray' (copy-ray ray)))
+             (fn1 ray' res1 invdir)
+             (set ray':dist-to (min ray':dist-to res1:distance))
+             (fn2 ray' res2 invdir)
              (if (< res2:distance res1:distance)
               (set res1 res2))))))))))))
 
@@ -1199,13 +1222,16 @@
            (set res1:distance Infinity)
            (if (ray_hits_bound_inv
                 bound':from bound':to
-                ray:pos invdir)
+                ray invdir)
             (let
              ((res2 (make-res))
-              (res3 (make-res)))
-             (fn1 ray res1 invdir)
-             (fn2 ray res2 invdir)
-             (fn3 ray res3 invdir)
+              (res3 (make-res))
+              (ray' (copy-ray ray)))
+             (fn1 ray' res1 invdir)
+             (set ray':dist-to (min ray':dist-to res1:distance))
+             (fn2 ray' res2 invdir)
+             (set ray':dist-to (min ray':dist-to res2:distance))
+             (fn3 ray' res3 invdir)
              (if (and
                   (< res2:distance res1:distance)
                   (< res2:distance res3:distance))
@@ -1236,15 +1262,19 @@
            (set res1:distance Infinity)
            (if (ray_hits_bound_inv
                 bound':from bound':to
-                ray:pos invdir)
+                ray invdir)
             (let
              ((res2 (make-res))
               (res3 (make-res))
-              (res4 (make-res)))
-             (fn1 ray res1 invdir)
-             (fn2 ray res2 invdir)
-             (fn3 ray res3 invdir)
-             (fn4 ray res4 invdir)
+              (res4 (make-res))
+              (ray' (copy-ray ray)))
+             (fn1 ray' res1 invdir)
+             (set ray':dist-to (min ray':dist-to res1:distance))
+             (fn2 ray' res2 invdir)
+             (set ray':dist-to (min ray':dist-to res2:distance))
+             (fn3 ray' res3 invdir)
+             (set ray':dist-to (min ray':dist-to res3:distance))
+             (fn4 ray' res4 invdir)
              (if (and
                   (< res2:distance res1:distance)
                   (< res2:distance res3:distance)
