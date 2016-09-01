@@ -1194,13 +1194,17 @@
                 bound':from bound':to
                 ray invdir)
             (let
-             ((res2 (make-res))
-              (ray' (copy-ray ray)))
+             ((ray' (copy-ray ray)))
              (fn1 ray' res1 invdir)
              (set ray':dist-to (min ray':dist-to res1:distance))
-             (fn2 ray' res2 invdir)
-             (if (< res2:distance res1:distance)
-              (set res1 res2))))))))))))
+             (if (= Infinity res1:distance)
+              ; we can reuse res1
+              (fn2 ray' res1 invdir)
+              (let
+               ((res2 (make-res)))
+               (fn2 ray' res2 invdir)
+               (if (< res2:distance res1:distance)
+                (set res1 res2))))))))))))))
 
 (def group3
  (lambda (obj1 obj2 obj3)
@@ -1224,68 +1228,40 @@
                 bound':from bound':to
                 ray invdir)
             (let
-             ((res2 (make-res))
-              (res3 (make-res))
-              (ray' (copy-ray ray)))
+             ((ray' (copy-ray ray)))
              (fn1 ray' res1 invdir)
              (set ray':dist-to (min ray':dist-to res1:distance))
-             (fn2 ray' res2 invdir)
-             (set ray':dist-to (min ray':dist-to res2:distance))
-             (fn3 ray' res3 invdir)
-             (if (and
-                  (< res2:distance res1:distance)
-                  (< res2:distance res3:distance))
-              (set res1 res2)
-              (if (< res3:distance res1:distance)
-               (set res1 res3)))))))))))))
-
-(def group4
- (lambda (obj1 obj2 obj3 obj4)
-  (let
-   ((fn1 (get-scenefun obj1))
-    (fn2 (get-scenefun obj2))
-    (fn3 (get-scenefun obj3))
-    (fn4 (get-scenefun obj4))
-    (bound' (merge-bounding-box
-             (merge-bounding-box
-              (get-bounding-box obj1)
-              (get-bounding-box obj2))
-             (merge-bounding-box
-              (get-bounding-box obj3)
-              (get-bounding-box obj4)))))
-   (alloc-struct
-    (bound bound')
-    (fn (type SceneFunExt
-         (lambda (ray res1 invdir)
-          (seq
-           (set res1:hit-side OUTSIDE)
-           (set res1:distance Infinity)
-           (if (ray_hits_bound_inv
-                bound':from bound':to
-                ray invdir)
-            (let
-             ((res2 (make-res))
-              (res3 (make-res))
-              (res4 (make-res))
-              (ray' (copy-ray ray)))
-             (fn1 ray' res1 invdir)
-             (set ray':dist-to (min ray':dist-to res1:distance))
-             (fn2 ray' res2 invdir)
-             (set ray':dist-to (min ray':dist-to res2:distance))
-             (fn3 ray' res3 invdir)
-             (set ray':dist-to (min ray':dist-to res3:distance))
-             (fn4 ray' res4 invdir)
-             (if (and
-                  (< res2:distance res1:distance)
-                  (< res2:distance res3:distance)
-                  (< res2:distance res4:distance))
-              (set res1 res2)
-              (if (and
-                   (< res3:distance res1:distance)
-                   (< res3:distance res4:distance))
-               (set res1 res3)
-               (if (< res4:distance res1:distance)
-                (set res1 res4))))))))))))))
+             (if (= Infinity res1:distance)
+              ; reuse res1
+              (seq
+               (fn2 ray' res1 invdir)
+               (set ray':dist-to (min ray':dist-to res1:distance))
+               (if (= Infinity res1:distance)
+                (fn3 ray' res1 invdir)
+                (let
+                 ((res2 (make-res)))
+                 (fn3 ray' res2 invdir)
+                 (if (< res2:distance res1:distance)
+                  (set res1 res2)))))
+              ; create res2
+              (let
+               ((res2 (make-res)))
+               (fn2 ray' res2 invdir)
+               (set ray':dist-to (min ray':dist-to res2:distance))
+               (if (= Infinity res2:distance)
+                (seq
+                 (fn3 ray' res2 invdir)
+                 (if (< res2:distance res1:distance)
+                  (set res1 res2)))
+                (let
+                 ((res3 (make-res)))
+                 (fn3 ray' res3 invdir)
+                 (if (and
+                      (< res2:distance res1:distance)
+                      (< res2:distance res3:distance))
+                  (set res1 res2)
+                  (if (< res3:distance res1:distance)
+                   (set res1 res3)))))))))))))))))
 
 ; should be inlined away
 (def inv_wrap_outer
@@ -1325,21 +1301,11 @@
        (sub1 (groupfun (slice pivot0 pivot1 args)))
        (sub2 (groupfun (slice pivot1 (size args) args))))
       (list 'group3 sub0 sub1 sub2))
-     (if (= (size args) 2)
-      (let
-       ((pivot (/ (size args) 2))
-        (left (groupfun (slice 0 pivot args)))
-        (right (groupfun (slice pivot (size args) args))))
-       (list 'group2 left right))
-      (let
-       ((pivot0 (/ (size args) 4))
-        (pivot1 (/ (* 2 (size args)) 4))
-        (pivot2 (/ (* 3 (size args)) 4))
-        (sub0 (groupfun (slice 0 pivot0 args)))
-        (sub1 (groupfun (slice pivot0 pivot1 args)))
-        (sub2 (groupfun (slice pivot1 pivot2 args)))
-        (sub3 (groupfun (slice pivot2 (size args) args))))
-       (list 'group4 sub0 sub1 sub2 sub3))))))))
+     (let
+      ((pivot (/ (size args) 2))
+       (left (groupfun (slice 0 pivot args)))
+       (right (groupfun (slice pivot (size args) args))))
+      (list 'group2 left right)))))))
 
 (def groupfun_outer
  (lambda (args)
@@ -1653,21 +1619,11 @@
           (sub1 (for/group-fn pivot0 pivot1 fn))
           (sub2 (for/group-fn pivot1 to fn)))
          (group3 sub0 sub1 sub2))
-        (if (= size 2)
-         (let
-          ((pivot (+ from (/ size 2)))
-           (left (for/group-fn from pivot fn))
-           (right (for/group-fn pivot to fn)))
-          (group2 left right))
-         (let
-          ((pivot0 (+ from (/ size 4)))
-           (pivot1 (+ from (/ (* 2 size) 4)))
-           (pivot2 (+ from (/ (* 3 size) 4)))
-           (sub0 (for/group-fn from pivot0 fn))
-           (sub1 (for/group-fn pivot0 pivot1 fn))
-           (sub2 (for/group-fn pivot1 pivot2 fn))
-           (sub3 (for/group-fn pivot2 to fn)))
-          (group4 sub0 sub1 sub2 sub3))))))))))
+        (let
+         ((pivot (+ from (/ size 2)))
+          (left (for/group-fn from pivot fn))
+          (right (for/group-fn pivot to fn)))
+         (group2 left right)))))))))
 
 (def for/group
   (macro (var from to body)
