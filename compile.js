@@ -4121,11 +4121,11 @@ function setupSysctx() {
     fail(thing, "unimplemented!");
   });
   
-  sysctx.add("Infinity", {kind: "expr", type: "float", value: "Infinity"});
-  sysctx.add("-Infinity", {kind: "expr", type: "float", value: "-Infinity"});
-  sysctx.add("dw", {kind: "expr", type: "int", value: "dw"});
-  sysctx.add("dh", {kind: "expr", type: "int", value: "dh"});
-  sysctx.add("di", {kind: "expr", type: "int", value: "di"});
+  sysctx.add("Infinity", {kind: "expr", type: "float", value: "Infinity", constant:1});
+  sysctx.add("-Infinity", {kind: "expr", type: "float", value: "-Infinity", constant:1});
+  sysctx.add("dw", {kind: "expr", type: "int", value: "dw", constant:1});
+  sysctx.add("dh", {kind: "expr", type: "int", value: "dh", constant:1});
+  sysctx.add("di", {kind: "expr", type: "int", value: "di", constant:1});
   sysctx.add("projscale", {kind: "expr", type: "int", value: 1});
   return sysctx;
 }
@@ -4395,7 +4395,7 @@ function compile(files) {
     while (context) { // bake for entire list of frozen clones
       for (var key in context.table) {
         var value = context.table[key];
-        if (typeof value == "object" && lit_float(value)) {
+        if (typeof value == "object" && lit_float(value) && !('const' in value)) {
           // bake in
           var jsname = jsfile.allocName("g", key);
           // log("baking "+jsname);
