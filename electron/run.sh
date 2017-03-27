@@ -1,5 +1,5 @@
 #!/bin/sh
-HOST="http://feephome.no-ip.org/~feep/jsfarm"
+HOST="http://feep.life/~feep/jsfarm"
 set -e
 rm -rf web/ out/ || true
 mkdir out/

@@ -4,7 +4,7 @@
     window.$ = window.jQuery = module.exports;
     var os = require('os');
     $(function() {
-      $('#target').val("feephome.no-ip.org/jsfarm");
+      $('#target').val("feep.life/jsfarm");
       $('#threads').val(os.cpus().length);
       $('#ident').val(os.hostname());
       $('#ConnectButton').click();

@@ -38,7 +38,7 @@ function startUploadingToImgur(div) {
   // thanks http://www.dave-bond.com/blog/2010/01/JQuery-ajax-progress-HMTL5/
   setAnchorState('image', null); // don't include in the location being shared
   
-  var description = "Rendered with JSFarm: http://feephome.no-ip.org/~feep/jsfarm/info.html";
+  var description = "Rendered with JSFarm: http://feep.life/~feep/jsfarm/info.html";
   if ('editor' in window && window['editor'].allClean()) {
     description += "\n\nScene source here: "+window.location;
   } // TODO else save first?
