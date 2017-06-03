@@ -146,7 +146,7 @@ function workerHandleMessage(e, postMessage) {
             //                                           // "-O2", "-march=native",
             //                                           "-g", "-lm", "-shared", "-fPIC", src_name, "-o", bin_temp_name,
             //                                           "-Ddw="+settings.dw, "-Ddh="+settings.dh, "-Ddi="+settings.di, "-Ddt="+settings.dt]);
-            var res = child_process.spawnSync("clang", ["-Ofast", "-march=native", "-Wno-unknown-attributes",
+            var res = child_process.spawnSync("clang", ["-Ofast", /*"-march=native", */"-Wno-unknown-attributes",
                                                         "-g", "-lm", "-shared", "-fPIC", src_name, "-o", bin_temp_name,
                                                         "-Ddw="+settings.dw, "-Ddh="+settings.dh, "-Ddi="+settings.di, "-Ddt="+settings.dt]);
             
